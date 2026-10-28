@@ -44,7 +44,7 @@ Source builds are development builds. Only the official Microsoft Store installe
 
 Read [SECURITY.md](SECURITY.md), [the security review](docs/security-review-2026-10-28.md), [architecture](desktop/ARCHITECTURE.md), and [contribution instructions](CONTRIBUTING.md). CodeQL, dependency audits, secret scanning and tests provide repeatable checks; passing them does not prove the absence of unknown vulnerabilities.
 
-[Desktop documentation](desktop/README.md) · [Store packaging](desktop/STORE.md) · [publisher signing](desktop/SIGNING.md) · [third-party notices](desktop/THIRD_PARTY_NOTICES.md) · [privacy policy](https://ip-murad.com/browser/privacy/)
+[Brave architecture review](desktop/BRAVE-RESEARCH.md) · [Desktop documentation](desktop/README.md) · [Store packaging](desktop/STORE.md) · [publisher signing](desktop/SIGNING.md) · [third-party notices](desktop/THIRD_PARTY_NOTICES.md) · [privacy policy](https://ip-murad.com/browser/privacy/)
 
 ## License
 
