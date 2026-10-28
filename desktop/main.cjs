@@ -3,6 +3,7 @@ const { app, BrowserWindow, WebContentsView, ipcMain, session, protocol, dialog,
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { readBoundedText } = require('./bounded-file.cjs');
 const { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender } = require('./policy.cjs');
 const { openStore } = require('./store.cjs');
 const { createProtection } = require('./protection.cjs');
@@ -288,8 +289,7 @@ async function command(action, data) {
     case 'bookmark-import': {
       const result = await dialog.showOpenDialog(win, { title: 'استيراد المفضلة', properties: ['openFile'], filters: [{ name: 'Bookmarks JSON', extensions: ['json'] }] });
       if (result.canceled) break;
-      const filename = result.filePaths[0]; if (fs.statSync(filename).size > 1_000_000) throw new Error('حجم الملف أكبر من الحد المسموح.');
-      const imported = sanitizeBookmarks(JSON.parse(fs.readFileSync(filename, 'utf8')));
+      const imported = sanitizeBookmarks(JSON.parse(readBoundedText(result.filePaths[0], 1_000_000)));
       store.state.bookmarks = sanitizeBookmarks([...store.state.bookmarks, ...imported]); store.persist(); message(`أُضيفت المفضلة. لديك الآن ${store.state.bookmarks.length} رابطًا.`); break;
     }
     case 'bookmark-export': { const result = await dialog.showSaveDialog(win, { title: 'تصدير المفضلة', defaultPath: 'sanad-bookmarks.json', filters: [{ name: 'JSON', extensions: ['json'] }] }); if (!result.canceled) fs.writeFileSync(result.filePath, JSON.stringify({ version: 1, bookmarks: store.state.bookmarks }, null, 2)); break; }
@@ -392,3 +392,4 @@ app.whenReady().then(async () => {
 }).catch(error => { console.error(error.message); app.quit(); });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => { if (!shuttingDown) { try { store?.flush(); } catch {} } });
+

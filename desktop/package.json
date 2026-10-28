@@ -1,6 +1,6 @@
 {
   "name": "sanad-browser-desktop",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Sanad Al-Haramain desktop browser powered by Chromium through Electron",
   "main": "main.cjs",
   "author": "Murad Aljohani",
@@ -9,7 +9,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/policy.test.cjs tests/updates.test.cjs tests/security.test.cjs tests/protection.test.cjs tests/store-package.test.cjs",
+    "test": "node --test tests/policy.test.cjs tests/updates.test.cjs tests/security.test.cjs tests/protection.test.cjs tests/store-package.test.cjs tests/bounded-file.test.cjs",
     "prepare:filters": "node scripts/prepare-filters.cjs",
     "test:desktop": "node tests/desktop.test.cjs && node tests/tabs.test.cjs && node tests/protection-desktop.test.cjs",
     "pack": "npm run prepare:filters && electron-builder --dir --publish never",
@@ -62,7 +62,8 @@
       "LICENSE",
       "THIRD_PARTY_NOTICES.md",
       "package.json",
-      "store-distribution.cjs"
+      "store-distribution.cjs",
+      "bounded-file.cjs"
     ],
     "win": {
       "target": [

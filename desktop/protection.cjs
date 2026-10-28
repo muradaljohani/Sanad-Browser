@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const { readBoundedText } = require('./bounded-file.cjs');
 const { net } = require('electron');
 const { parse: parseDomain } = require('tldts-experimental');
 const { MAX_BUNDLE_BYTES, fetchFilterLists, compileFilters, parseBundle } = require('./filter-lists.cjs');
@@ -22,7 +23,7 @@ function createProtection(directory, onBlocked) {
   const cache = path.join(directory, 'privacy-bundle-v2.json');
   let blocker, cosmetic, revision = '', source = 'offline';
   for (const [filename, label] of [[cache, 'standard'], [path.join(__dirname, 'assets', 'filters', 'bundle.json'), 'bundled']]) {
-    try { if (fs.statSync(filename).size > MAX_BUNDLE_BYTES) continue; const saved = parseBundle(JSON.parse(fs.readFileSync(filename, 'utf8')), ElectronBlocker); blocker = saved.network; cosmetic = saved.cosmetic; revision = saved.revision; source = label; break; } catch {}
+    try { const saved = parseBundle(JSON.parse(readBoundedText(filename, MAX_BUNDLE_BYTES)), ElectronBlocker); blocker = saved.network; cosmetic = saved.cosmetic; revision = saved.revision; source = label; break; } catch {}
   }
   // Network-only integration keeps untrusted pages free of preloads/IPC and supports multiple sessions.
   if (!blocker) blocker = ElectronBlocker.parse(STARTER, { loadCosmeticFilters: false, loadCSPFilters: false });
@@ -57,4 +58,5 @@ function createProtection(directory, onBlocked) {
   return { set, update, release, stylesFor, source: () => source, revision: () => revision, dispose: () => { for (const ses of [...sessions]) release(ses); } };
 }
 module.exports = { createProtection };
+
 

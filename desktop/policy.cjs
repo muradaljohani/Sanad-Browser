@@ -18,7 +18,8 @@ function resolveDestination(raw, testMode = false) {
   if (['chrome://credits', 'chrome://credits/', 'chrome://version', 'sanad://credits'].includes(text)) return { panel: 'about' };
   if (/^(?:javascript|data|file|blob|vbscript|about|chrome|sanad|ftp|http):/i.test(text) && !safeURL(text, testMode)) return null;
   if (/^https?:\/\//i.test(text)) { const url = safeURL(text, testMode); return url ? { url } : null; }
-  if (/^(?:[^\s/:?#@]+\.)+[^\s/:?#@]+(?::\d+)?(?:[/?#].*)?$/.test(text) || (testMode && /^localhost:\d+/.test(text))) {
+  // Dot-separated labels must not consume their own separator (exponential backtracking).
+  if (/^(?:[^\s/:?#@.]+\.)+[^\s/:?#@.]+\.?(?::\d+)?(?:[/?#].*)?$/.test(text) || (testMode && /^localhost:\d+/.test(text))) {
     const url = safeURL(`${testMode && text.startsWith('localhost:') ? 'http' : 'https'}://${text}`, testMode);
     return url ? { url } : null;
   }
@@ -63,4 +64,5 @@ function trustedSender(event, contents) {
   return Boolean(contents && !contents.isDestroyed() && event.sender === contents && event.senderFrame === contents.mainFrame && event.senderFrame?.url === 'sanad-app://browser/index.html');
 }
 module.exports = { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender };
+
 

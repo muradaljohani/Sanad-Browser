@@ -2,10 +2,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { safeURL, mayRemember, sanitizeBookmarks } = require('./policy.cjs');
+const { readBoundedText } = require('./bounded-file.cjs');
 function openStore(directory) {
   const filename = path.join(directory, 'browser-state-v1.json');
   let saved = {};
-  try { if (fs.statSync(filename).size < 2_000_000) saved = JSON.parse(fs.readFileSync(filename, 'utf8')); } catch {}
+  try { saved = JSON.parse(readBoundedText(filename, 1_999_999)); } catch {}
   const preferences = { theme: saved.preferences?.theme === 'light' ? 'light' : 'dark', protection: saved.preferences?.protection !== false };
   let bookmarks = [];
   try { bookmarks = sanitizeBookmarks(saved.bookmarks ?? []); } catch {}
@@ -23,3 +24,4 @@ function openStore(directory) {
   return { state, persist, flush };
 }
 module.exports = { openStore };
+

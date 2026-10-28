@@ -1,4 +1,5 @@
 'use strict';
+const { spawnSync } = require('node:child_process');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -70,3 +71,12 @@ test('page context actions reject unsafe links and keep selected searches litera
   for (const linkURL of ['javascript:alert(1)', 'file:///etc/passwd', 'https://user:secret@example.com']) assert.equal(pageActions({ linkURL }, callbacks).some(item => item.label?.startsWith('فتح الرابط')), false);
   const password = pageActions({ selectionText: 'secret', isEditable: true, formControlType: 'input-password', editFlags: { canCopy: false, canPaste: true } }, callbacks); assert.equal(password.some(item => item.label?.startsWith('البحث عن')), false); assert.equal(password.find(item => item.role === 'copy').enabled, false);
 });
+
+test('malformed dotted addresses finish promptly while normal hostname forms retain navigation', () => {
+  const policy = require.resolve('../policy.cjs');
+  const source = "const { resolveDestination } = require(process.argv[1]); for (const value of ['a.'.repeat(999)+'@', '!.'.repeat(600)+'@']) { const result=resolveDestination(value); if (!result || !result.url.includes('/browser?')) process.exit(1); }";
+  const result = spawnSync(process.execPath, ['-e', source, policy], { timeout: 2000, encoding: 'utf8' });
+  assert.equal(result.error, undefined); assert.equal(result.status, 0, result.stderr);
+  for (const value of ['example.com.', 'sub.example.com:8443/a.b?q=a.b#part', 'münich.example']) assert.equal(resolveDestination(value).url, new URL(`https://${value}`).href);
+});
+

@@ -47,7 +47,9 @@ async function main() {
     }, { base, pathname, source });
     const clickLink = (id, button = 'left', modifiers = []) => app.evaluate(async ({ webContents }, { base, id, button, modifiers }) => {
       const wc = webContents.getAllWebContents().find(wc => wc.getURL() === base + '/');
-      const point = await wc.executeJavaScript(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}; })()`);
+      const points = await wc.executeJavaScript(`Object.fromEntries([...document.querySelectorAll('a[id]')].map(link => { const r = link.getBoundingClientRect(); return [link.id, { x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2) }]; }))`);
+      if (!Object.hasOwn(points, id)) throw new Error('Missing fixture link');
+      const point = points[id];
       wc.sendInputEvent({ type: 'mouseDown', ...point, button, clickCount: 1, modifiers });
       wc.sendInputEvent({ type: 'mouseUp', ...point, button, clickCount: 1, modifiers });
     }, { base, id, button, modifiers });
@@ -166,4 +168,5 @@ async function main() {
   }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
+
 
