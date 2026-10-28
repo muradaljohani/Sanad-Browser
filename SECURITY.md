@@ -25,3 +25,5 @@ Include the app/Electron/Chromium versions, operating system, affected source pa
 Preserve these boundaries in pull requests. Do not disable TLS verification, sandboxing, origin checks, CSP, signature checks or dependency audits to make a test pass. Never commit tokens, API keys, private certificates, signing passwords, environment files or user profiles. Use repository secrets only in trusted release contexts; fork pull requests must not receive them.
 
 Keep Electron/Chromium and other dependencies current. CI runs CodeQL, a full Git-history secret scan, dependency audits and desktop tests. Review findings before releasing. A successful scan or Store certification is not proof that the browser has no vulnerabilities, nor an independent penetration-test certification.
+
+Fixed YouTube page code is registered using Electron's main-process Debugger transport; it must never open a debugging port, install page bindings, execute downloaded scriptlets, bypass TLS/CSP or expose privileged APIs. Its only page-visible control is a boolean opt-out for local hooks.

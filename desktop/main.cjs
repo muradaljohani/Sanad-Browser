@@ -13,6 +13,7 @@ const { STORE_UPDATES_URI, createStoreUpdateChecker } = require('./store-distrib
 const storeDistribution = process.windowsStore === true;
 const { unsafeStartupSwitch, downloadName, executableDownload, downloadSourceAllowed } = require('./security.cjs');
 const { YOUTUBE_STYLES, isYouTube, youtubeGuardScript } = require('./youtube-guard.cjs');
+const { createYouTubeInjection } = require('./youtube-injection.cjs');
 if (app.isPackaged && unsafeStartupSwitch(app.commandLine)) app.exit(1);
 app.enableSandbox();
 const readabilitySource = fs.readFileSync(require.resolve('@mozilla/readability/Readability.js'), 'utf8');
@@ -150,6 +151,7 @@ function attachView(tab, inheritedContents) {
   tab.view = view;
   win.contentView.addChildView(view);
   const wc = view.webContents;
+  tab.youtube = createYouTubeInjection(wc, store.state.preferences.protection, Boolean(inheritedContents));
   wc.on('dom-ready', () => { void applyPageProtection(tab, wc); });
   wc.setZoomMode('isolated');
   wc.setZoomFactor(tab.zoom);
@@ -158,10 +160,10 @@ function attachView(tab, inheritedContents) {
   wc.on('context-menu', (_event, params) => {
     if (tab.id !== activeId || wc.isDestroyed()) return;
     const valid = () => tab.id === activeId && tab.view?.webContents === wc && !wc.isDestroyed();
-    const menu = pageActions(params, { open: (url, privateMode, background = false) => { if (!valid()) return; const next = createTab(url, tab.private || privateMode, !background); if (next) { next.openerId = tab.id; if (background) void next.view.webContents.loadURL(next.url).catch(() => {}); } }, copy: text => { if (valid()) clipboard.writeText(text); }, run: action => { if (valid()) void command(action, {}).catch(() => message('تعذر تنفيذ الإجراء.')); } }, testMode);
+    const menu = pageActions(params, { open: (url, privateMode, background = false) => { if (!valid()) return; const next = createTab(url, tab.private || privateMode, !background); if (next) { next.openerId = tab.id; if (background) void loadTabURL(next, next.url); } }, copy: text => { if (valid()) clipboard.writeText(text); }, run: action => { if (valid()) void command(action, {}).catch(() => message('تعذر تنفيذ الإجراء.')); } }, testMode);
     Menu.buildFromTemplate(menu).popup({ window: win, ...(params.frame ? { frame: params.frame } : {}) });
   });
-  for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void wc.loadURL(normalized).catch(() => {}); } });
+  for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void loadTabURL(tab, normalized); } });
   wc.setWindowOpenHandler(details => {
     if (!safeURL(details.url, testMode) && details.url !== 'about:blank') { message('هذا النوع من الروابط غير مدعوم داخل المتصفح.'); return { action: 'deny' }; }
     if (tabs.length >= MAX_TABS) { message('وصلت إلى 32 تبويبًا. أغلق تبويبًا قبل فتح آخر.'); return { action: 'deny' }; }
@@ -178,7 +180,7 @@ function attachView(tab, inheritedContents) {
           loadOptions.postData = details.postBody.data;
           loadOptions.extraHeaders = `Content-Type: ${details.postBody.contentType}${details.postBody.boundary ? `; boundary=${details.postBody.boundary}` : ''}`;
         }
-        void next.view.webContents.loadURL(next.url, loadOptions).catch(() => {});
+        void loadTabURL(next, next.url, loadOptions);
       }
       if (details.disposition !== 'background-tab') activate(next.id);
       return next.view.webContents;
@@ -189,14 +191,20 @@ function attachView(tab, inheritedContents) {
     else tab.closing = false;
   });
   wc.once('destroyed', () => { if (tab.view === view) finishClose(tab.id); });
-  wc.on('did-navigate', (_event, url) => { tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
-  wc.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { const normalized = nativeSiteURL(url, tab.private, testMode); if (normalized && normalized !== url) { void wc.loadURL(normalized).catch(() => {}); return; } tab.url = url; remember(tab); void applyPageProtection(tab, wc); publish(); } });
+  wc.on('did-navigate', (_event, url) => { if (url === 'about:blank' && !inheritedContents && tab.url !== 'about:blank') return; tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
+  wc.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { const normalized = nativeSiteURL(url, tab.private, testMode); if (normalized && normalized !== url) { void loadTabURL(tab, normalized); return; } tab.url = url; remember(tab); void applyPageProtection(tab, wc); publish(); } });
   wc.on('page-title-updated', (_event, title) => { tab.title = String(title).slice(0, 200); if (!tab.private) { const item = store.state.history.find(item => item.url === tab.url); if (item) { item.title = tab.title; store.persist(); } } publish(); });
   for (const event of ['did-start-loading', 'did-stop-loading', 'media-started-playing', 'media-paused']) wc.on(event, publish);
   wc.on('did-fail-load', (_event, code, _description, url, isMainFrame) => { if (isMainFrame && code !== -3) { tab.error = 'تعذر فتح الصفحة. تحقق من الاتصال أو جرّب إعادة التحميل.'; tab.url = safeURL(url, testMode) || tab.url; publish(); } });
   wc.on('render-process-gone', () => { tab.error = 'توقفت الصفحة. أعد تحميلها للمتابعة.'; publish(); });
   wc.on('found-in-page', (_event, result) => { if (tab.id === activeId) win.webContents.send('sanad-browser:state', { ...snapshot(), found: { total: result.matches, current: result.activeMatchOrdinal } }); });
   layout();
+}
+async function loadTabURL(tab, url, options) {
+  const wc = tab?.view?.webContents;
+  if (!wc || wc.isDestroyed()) return;
+  await tab.youtube?.ready;
+  if (!wc.isDestroyed() && tab.view?.webContents === wc) await wc.loadURL(url, options).catch(() => {});
 }
 function createTab(url = homeURL, isPrivate = false, load = true, inheritedContents, allowBlank = false) {
   if (tabs.length >= MAX_TABS) { message('وصلت إلى 32 تبويبًا. أغلق تبويبًا قبل فتح آخر.'); return null; }
@@ -205,14 +213,14 @@ function createTab(url = homeURL, isPrivate = false, load = true, inheritedConte
   const tab = { id: crypto.randomUUID(), title: 'تبويب جديد', url: safe, private: Boolean(isPrivate), pinned: false, muted: false, blocked: 0, error: '', zoom: 1, view: null };
   tabs.push(tab);
   attachView(tab, inheritedContents);
-  if (load) { activate(tab.id); void tab.view.webContents.loadURL(safe).catch(() => {}); }
+  if (load) { activate(tab.id); void loadTabURL(tab, safe); }
   publish(); return tab;
 }
 function activate(id) {
   const tab = tabs.find(item => item.id === id);
   if (!tab) return;
   activeId = id; overlay = false; notice = '';
-  if (!tab.view) { attachView(tab); void tab.view.webContents.loadURL(tab.url).catch(() => {}); }
+  if (!tab.view) { attachView(tab); void loadTabURL(tab, tab.url); }
   layout(); tab.view.webContents.focus(); publish();
 }
 async function cleanupPrivate() {
@@ -257,6 +265,8 @@ async function applyPageProtection(tab, wc) {
   const url = wc.getURL(), enabled = store.state.preferences.protection;
   const valid = () => !wc.isDestroyed() && tab.view?.webContents === wc && wc.getURL() === url && tab.protectionEpoch === epoch;
   try {
+    await tab.youtube?.setEnabled(enabled);
+    if (!valid()) return;
     if (tab.protectionCSS) { const previous = tab.protectionCSS; tab.protectionCSS = null; await wc.removeInsertedCSS(previous).catch(() => {}); }
     if (!valid()) return;
     const css = enabled ? protection.stylesFor(url, wc.session) + (isYouTube(url) ? YOUTUBE_STYLES : '') : '';
@@ -274,8 +284,8 @@ async function command(action, data) {
     case 'activate': activate(data.id); break;
     case 'close': closeTab(data.id); break;
     case 'restore': restoreTab(); break;
-    case 'navigate': { const destination = resolveDestination(data.value, testMode); if (!destination) { message('اكتب رابطًا مشفرًا أو عبارة بحث.'); break; } if (destination.panel) { openPanel(destination.panel); break; } overlay = false; layout(); tab.error = ''; void wc.loadURL(nativeSiteURL(destination.url, tab.private, testMode)).catch(() => {}); wc.focus(); break; }
-    case 'home': overlay = false; layout(); void wc.loadURL(nativeSiteURL(homeURL, tab.private, testMode)).catch(() => {}); break;
+    case 'navigate': { const destination = resolveDestination(data.value, testMode); if (!destination) { message('اكتب رابطًا مشفرًا أو عبارة بحث.'); break; } if (destination.panel) { openPanel(destination.panel); break; } overlay = false; layout(); tab.error = ''; void loadTabURL(tab, nativeSiteURL(destination.url, tab.private, testMode)); wc.focus(); break; }
+    case 'home': overlay = false; layout(); void loadTabURL(tab, nativeSiteURL(homeURL, tab.private, testMode)); break;
     case 'back': if (wc?.navigationHistory.canGoBack()) wc.navigationHistory.goBack(); break;
     case 'forward': if (wc?.navigationHistory.canGoForward()) wc.navigationHistory.goForward(); break;
     case 'reload': if (wc) wc.reload(); else activate(activeId); break;
@@ -354,7 +364,7 @@ async function command(action, data) {
     case 'updates-check': if (!data.automatic || (app.isPackaged && !tab?.private)) await updates.check({ automatic: data.automatic === true }); break;
     case 'updates-open': { if (storeDistribution) { await shell.openExternal(STORE_UPDATES_URI); break; } const release = updates.snapshot(); if (release.releaseUrl && ['available', 'current', 'ahead'].includes(release.status)) createTab(release.releaseUrl, tab?.private); break; }
     case 'about-copy': clipboard.writeText(`Sanad Browser ${app.getVersion()} (${process.platform} ${process.arch})\nChromium ${process.versions.chrome}\nElectron ${process.versions.electron}\n${storeDistribution ? 'Microsoft Store · Store-managed updates' : 'Preview channel · manual installation'}`); message('نُسخت معلومات الإصدار.'); break;
-    case 'chromium-licenses': { const next = createTab(homeURL, Boolean(tab?.private), false); if (next) { activate(next.id); void next.view.webContents.loadURL('sanad-licenses://app/chromium').catch(() => {}); } break; }
+    case 'chromium-licenses': { const next = createTab(homeURL, Boolean(tab?.private), false); if (next) { activate(next.id); void loadTabURL(next, 'sanad-licenses://app/chromium'); } break; }
     default: throw new Error('إجراء غير معروف.');
   }
   publish(); return snapshot();
