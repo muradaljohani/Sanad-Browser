@@ -1,0 +1,195 @@
+name: Sanad Chromium desktop
+
+on:
+  push:
+    branches: [main]
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  pull_request:
+    branches: [main]
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: npm run prepare:filters
+      - run: npm test
+      - run: xvfb-run -a npm run test:desktop
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: desktop-test-proof
+          path: desktop/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: dist:win
+            name: windows-x64
+          - os: ubuntu-latest
+            script: dist:linux
+            name: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - name: Build platform package
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" && -n "$WIN_CSC_LINK" ]]; then
+            [[ "$WIN_SIGNING_CERT_SHA1" =~ ^[A-Fa-f0-9]{40}$ ]] || { echo "::error::Configure the approved publisher certificate thumbprint before signing."; exit 1; }
+            npm run ${{ matrix.script }} -- --config.win.forceCodeSigning=true
+          else
+            npm run ${{ matrix.script }}
+          fi
+        env:
+          WIN_CSC_LINK: ${{ runner.os == 'Windows' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          WIN_SIGNING_CERT_SHA1: ${{ vars.WIN_SIGNING_CERT_SHA1 }}
+      - name: Test rejection of unsigned, untrusted, wrong-publisher and modified files
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-signature-policy.ps1
+      - name: Verify signed Windows package before installation
+        if: runner.os == 'Windows' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          WIN_SIGNING_CERT_SHA1: ${{ vars.WIN_SIGNING_CERT_SHA1 }}
+        run: |
+          if (-not $env:WIN_SIGNING_CERT_SHA1) {
+            Write-Output '::notice::No approved publisher certificate is configured. These are CI test artifacts only; Windows release publication is blocked.'
+            exit 0
+          }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $paths = @("dist/Sanad-Browser-$version-x64-Setup.exe", "dist/Sanad-Browser-$version-x64-Portable.exe", 'dist/win-unpacked/Sanad Browser.exe')
+          ./scripts/verify-windows-signatures.ps1 -Paths $paths -ExpectedThumbprint $env:WIN_SIGNING_CERT_SHA1 -ReportPath test-results/packaged-signatures.json
+      - name: Install and verify the actual Windows Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-installed.ps1
+        env:
+          WIN_SIGNING_CERT_SHA1: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.WIN_SIGNING_CERT_SHA1 || '' }}
+      - name: Checksums
+        shell: bash
+        run: |
+          cd dist
+          find . -maxdepth 1 -type f \( -name '*.exe' -o -name '*.AppImage' \) -print0 | sort -z | xargs -0 sha256sum > SHA256-${{ matrix.name }}.txt
+          test -s SHA256-${{ matrix.name }}.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sanad-${{ matrix.name }}
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.AppImage
+            desktop/dist/SHA256-*.txt
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && runner.os == 'Windows'
+        with:
+          name: windows-install-proof
+          path: desktop/test-results/
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [test, build]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require an approved publisher before release publication
+        id: signing
+        shell: pwsh
+        env:
+          WIN_SIGNING_CERT_SHA1: ${{ vars.WIN_SIGNING_CERT_SHA1 }}
+        run: |
+          if ($env:WIN_SIGNING_CERT_SHA1 -notmatch '^[A-Fa-f0-9]{40}$') {
+            'eligible=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Output '::notice::Release blocked: a publicly trusted publisher certificate and verified signatures are required.'
+            exit 0
+          }
+          'eligible=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.signing.outputs.eligible == 'true'
+        with:
+          pattern: sanad-*
+          merge-multiple: true
+          path: release-files
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.signing.outputs.eligible == 'true'
+        with:
+          name: windows-install-proof
+          path: signing-proof
+      - name: Recheck release signatures and installation proof
+        if: steps.signing.outputs.eligible == 'true'
+        shell: pwsh
+        env:
+          WIN_SIGNING_CERT_SHA1: ${{ vars.WIN_SIGNING_CERT_SHA1 }}
+        run: |
+          $version = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).version
+          $setup = "release-files/Sanad-Browser-$version-x64-Setup.exe"
+          $portable = "release-files/Sanad-Browser-$version-x64-Portable.exe"
+          $null = ./desktop/scripts/verify-windows-signatures.ps1 -Paths @($setup, $portable) -ExpectedThumbprint $env:WIN_SIGNING_CERT_SHA1
+          $proof = Get-Content signing-proof/installed-windows.json -Raw | ConvertFrom-Json
+          if ($proof.version -ne $version -or $proof.installed -ne $true -or $proof.signature -ne 'Valid' -or $proof.trustedPublisherVerified -ne $true -or $proof.signerThumbprint -ne $env:WIN_SIGNING_CERT_SHA1 -or $proof.setupSha256 -ne (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()) {
+            throw 'Signed installer does not match the verified installed application.'
+          }
+      - name: Publish new tested and signed version
+        if: steps.signing.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./desktop/package.json').version")
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          TAG="desktop-v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Version already published; existing binaries remain unchanged."
+            exit 0
+          fi
+          gh release create "$TAG" release-files/* --target "$GITHUB_SHA" --prerelease --title "Sanad Browser $VERSION — Chromium desktop" --notes-file desktop/RELEASE_NOTES.md

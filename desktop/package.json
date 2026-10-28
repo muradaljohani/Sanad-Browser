@@ -1,0 +1,99 @@
+{
+  "name": "sanad-browser-desktop",
+  "version": "1.3.1",
+  "description": "Sanad Al-Haramain desktop browser powered by Chromium through Electron",
+  "main": "main.cjs",
+  "author": "Murad Aljohani",
+  "homepage": "https://ip-murad.com/browser",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/policy.test.cjs tests/updates.test.cjs tests/security.test.cjs tests/protection.test.cjs tests/store-package.test.cjs",
+    "prepare:filters": "node scripts/prepare-filters.cjs",
+    "test:desktop": "node tests/desktop.test.cjs && node tests/tabs.test.cjs && node tests/protection-desktop.test.cjs",
+    "pack": "npm run prepare:filters && electron-builder --dir --publish never",
+    "dist:win": "npm run prepare:filters && electron-builder --win nsis portable --x64 --publish never",
+    "dist:linux": "npm run prepare:filters && electron-builder --linux AppImage --x64 --publish never",
+    "dist:store": "npm run prepare:filters && electron-builder --config electron-builder.store.cjs --win appx --x64 --publish never"
+  },
+  "dependencies": {
+    "@ghostery/adblocker": "2.20.1",
+    "@ghostery/adblocker-electron": "2.20.1",
+    "@mozilla/readability": "0.6.0",
+    "tldts-experimental": "7.4.10"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "@electron/fuses": "2.0.0",
+    "electron-builder": "26.17.0",
+    "playwright": "1.58.2"
+  },
+  "build": {
+    "appId": "com.ip-murad.sanad.browser",
+    "productName": "Sanad Browser",
+    "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false
+    },
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.cjs",
+      "updates.cjs",
+      "page-actions.cjs",
+      "preload.cjs",
+      "policy.cjs",
+      "store.cjs",
+      "protection.cjs",
+      "filter-lists.cjs",
+      "youtube-guard.cjs",
+      "security.cjs",
+      "ui/**",
+      "assets/**",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
+      "package.json",
+      "store-distribution.cjs"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/mark.png",
+      "signtoolOptions": {
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
+      }
+    },
+    "nsis": {
+      "perMachine": false,
+      "allowElevation": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Sanad-Browser-${version}-${arch}-Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "Sanad-Browser-${version}-${arch}-Portable.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "assets/mark.png",
+      "category": "Network",
+      "artifactName": "Sanad-Browser-${version}-${arch}.${ext}"
+    }
+  }
+}

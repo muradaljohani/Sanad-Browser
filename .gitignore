@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-store/
+dist-store-ci/
+test-results/
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.pem
+.netlify/
+browser-state-v1.json
