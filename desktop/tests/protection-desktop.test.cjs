@@ -25,6 +25,7 @@ async function main() {
     await app.evaluate(({ webContents }) => { globalThis.protectionTrace = []; for (const wc of webContents.getAllWebContents()) { if (wc.getURL().startsWith('http://127.0.0.1:')) for (const method of ['insertCSS', 'removeInsertedCSS']) { const original = wc[method].bind(wc); wc[method] = async (...args) => { try { const result = await original(...args); globalThis.protectionTrace.push({ method, key: method === 'insertCSS' ? result : args[0] }); return result; } catch (error) { globalThis.protectionTrace.push({ method, error: error.message }); throw error; } }; } } });
     await command('navigate', { value: 'https://www.youtube.com/watch?v=sanad-fixture' });
     await poll('document.documentElement.dataset.skips', value => value === '1');
+    assert.equal(await app.evaluate(({webContents}) => webContents.getAllWebContents().find(wc=>wc.getURL().startsWith('https://www.youtube.com/')).navigationHistory.getAllEntries().some(entry=>entry.url==='about:blank')), false);
     const initial = await onPage('window.firstPlayerData');
     assert.deepEqual(initial, { videoDetails: { videoId: 'fixture-original' }, streamingData: { formats: [{ url: 'https://rr1.googlevideo.com/videoplayback' }] }, playabilityStatus: { status: 'OK' } });
     const fetchData = await onPage('(async () => { const r=await fetch("/youtubei/v1/player"); const c=r.clone(); return {json:await r.json(),text:JSON.parse(await c.text()),status:r.status,url:r.url}; })()');

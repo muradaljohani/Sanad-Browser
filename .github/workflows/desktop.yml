@@ -38,7 +38,6 @@ jobs:
       - run: npm test
       - run: xvfb-run -a npm run test:desktop
       - name: Record actual YouTube playback or the observed service wall
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: xvfb-run -a npm run test:youtube:live
         timeout-minutes: 3
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

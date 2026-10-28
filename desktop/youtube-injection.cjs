@@ -24,6 +24,14 @@ function createYouTubeInjection(wc, initialEnabled, inherited = false) {
       return true;
     } catch (error) { console.warn('YouTube document protection unavailable:', error.message); return false; }
   };
+  if (!inherited) {
+    const discardPrime = (_event, url) => {
+      if (url === 'about:blank') return;
+      wc.removeListener('did-navigate', discardPrime);
+      if (wc.navigationHistory.getActiveIndex() > 0 && wc.navigationHistory.getEntryAtIndex(0)?.url === 'about:blank') wc.navigationHistory.removeEntryAtIndex(0);
+    };
+    wc.on('did-navigate', discardPrime);
+  }
   // Electron may defer debugger command replies until the first navigation.
   // Prime only newly created contents; never replace an adopted popup's POST/opener.
   const ready = (inherited ? Promise.resolve() : wc.loadURL('about:blank')).then(update).catch(() => false);
