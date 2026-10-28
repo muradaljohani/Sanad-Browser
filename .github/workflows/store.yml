@@ -15,6 +15,8 @@ concurrency:
 jobs:
   msix:
     runs-on: windows-latest
+    outputs:
+      submission-ready: ${{ steps.identity.outputs.ready }}
     timeout-minutes: 25
     defaults:
       run:
@@ -87,6 +89,7 @@ jobs:
             desktop/dist-store/SHA256-store.txt
           if-no-files-found: error
           retention-days: 30
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -94,3 +97,40 @@ jobs:
           path: desktop/test-results/store/
           if-no-files-found: ignore
           retention-days: 30
+
+  submission-draft:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.msix.outputs.submission-ready == 'true'
+    needs: msix
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-store-submission
+          path: store-package
+      - name: Verify the Store submission checksums
+        working-directory: store-package
+        run: sha256sum --check SHA256-store.txt
+      - name: Stage a maintainer-only Store upload draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(store-package/*-Store.msixupload)
+          [[ ${#files[@]} -eq 1 && -f "${files[0]}" ]]
+          sanad_name=$(basename "${files[0]}")
+          sanad_version=${sanad_name#Sanad-Browser-}
+          sanad_version=${sanad_version%-x64-Store.msixupload}
+          [[ "$sanad_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          sanad_tag="store-submission-v$sanad_version"
+          if sanad_existing=$(gh release view "$sanad_tag" --repo "$GITHUB_REPOSITORY" --json isDraft,targetCommitish --jq '[.isDraft,.targetCommitish] | @tsv' 2>/dev/null); then
+            IFS=$'\t' read -r sanad_draft sanad_target <<< "$sanad_existing"
+            [[ "$sanad_draft" == 'true' && "$sanad_target" == "$GITHUB_SHA" ]] || { echo 'Existing submission version targets another revision. Increment the version; do not overwrite it.'; exit 1; }
+            echo 'Existing matching maintainer draft retained without replacing package bytes.'
+            exit 0
+          fi
+          gh release create "$sanad_tag" "${files[0]}" store-package/SHA256-store.txt --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" --title "Microsoft Store submission $sanad_version (maintainers)" --notes "Maintainer upload package for Microsoft Partner Center. Source: $GITHUB_SHA. This is an unsigned Store submission archive, not an end-user installer. Keep this release in draft. The signed public installer remains at https://ip-murad.com/browser/download/."
+

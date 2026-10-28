@@ -9,7 +9,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/policy.test.cjs tests/updates.test.cjs tests/security.test.cjs tests/protection.test.cjs tests/store-package.test.cjs tests/bounded-file.test.cjs",
+    "test": "node --test tests/policy.test.cjs tests/updates.test.cjs tests/security.test.cjs tests/protection.test.cjs tests/store-package.test.cjs tests/bounded-file.test.cjs tests/performance.test.cjs",
     "prepare:filters": "node scripts/prepare-filters.cjs",
     "test:desktop": "node tests/desktop.test.cjs && node tests/tabs.test.cjs && node tests/protection-desktop.test.cjs",
     "pack": "npm run prepare:filters && electron-builder --dir --publish never",
@@ -63,7 +63,8 @@
       "THIRD_PARTY_NOTICES.md",
       "package.json",
       "store-distribution.cjs",
-      "bounded-file.cjs"
+      "bounded-file.cjs",
+      "style-cache.cjs"
     ],
     "win": {
       "target": [

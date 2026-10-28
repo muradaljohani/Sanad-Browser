@@ -6,7 +6,7 @@ The source review traced navigation and popup creation, local custom protocols a
 
 Observed validation:
 
-- `npm test`: 31 tests passed, including URL/protocol policy, exact shell IPC authorization, private authentication-history exclusions, safe download names/chains, filter integrity, Store update behavior, malformed-address timing and bounded file reading during replacement/growth.
+- `npm test`: 35 tests passed, including URL/protocol policy, exact shell IPC authorization, private authentication-history exclusions, safe download names/chains, filter integrity, Store update behavior, malformed-address timing and bounded file reading during replacement/growth.
 - `npm audit --json`: zero known advisories across the locked production and development dependency graph (304 reported dependencies). This is a time-specific registry result, not proof of safety.
 - `node --check main.cjs` and `node --check ui/renderer.js`: passed.
 - The public source selection excludes environment credentials, private signing material, browser profiles, arbitrary-URL server proxies and private historical source.
@@ -18,6 +18,8 @@ CodeQL's first run reported five alerts. A local subprocess confirmed exponentia
 Three alerts concerned path-based metadata checks followed by a separate read. A controlled replacement caused the old profile reader to accept over 2 MB despite its size gate. All three JSON/filter callers now open once, inspect that descriptor and bound the bytes actually read, including file growth. Recovery behavior and the original byte limits are preserved. A shared helper is explicitly included in packaged applications.
 
 The remaining alert concerned generated JavaScript in a test-only click helper whose callers supplied fixed IDs; no production injection path was established. The helper now uses a constant script and selects returned point data without generating source from an ID.
+
+The same release also includes session-bounded cosmetic caching and a scoped, isolated YouTube guard; see [Brave research and performance limits](../desktop/BRAVE-RESEARCH.md).
 
 The production Store installation remains 1.3.1 until a new 1.3.2 package is submitted, certified and published. A GitHub merge alone does not update installed applications. Review coverage does not include a fuzzing campaign, an independent penetration test, every upstream Chromium/Electron code path, compromised operating systems, or future dependency vulnerabilities. The project does not claim zero vulnerabilities or guaranteed blocking of every YouTube advertisement.
 

@@ -259,7 +259,7 @@ async function applyPageProtection(tab, wc) {
   try {
     if (tab.protectionCSS) { const previous = tab.protectionCSS; tab.protectionCSS = null; await wc.removeInsertedCSS(previous).catch(() => {}); }
     if (!valid()) return;
-    const css = enabled ? protection.stylesFor(url) + (isYouTube(url) ? YOUTUBE_STYLES : '') : '';
+    const css = enabled ? protection.stylesFor(url, wc.session) + (isYouTube(url) ? YOUTUBE_STYLES : '') : '';
     // Electron 45 removes sheets using Blink's default author origin. Keep
     // insertion at that same origin so opting out removes the stylesheet.
     if (css) { const key = await wc.insertCSS(css, { cssOrigin: 'author' }); if (valid()) tab.protectionCSS = key; else if (!wc.isDestroyed()) await wc.removeInsertedCSS(key).catch(() => {}); }

@@ -2,6 +2,8 @@
 
 - Avoid exponential backtracking when resolving malformed dotted addresses; preserve normal hostnames, trailing-dot DNS, ports and literal search terms.
 - Pin each opened JSON/filter file to one descriptor and bound bytes actually read, preventing path-replacement and concurrent-growth bypasses of the size checks.
+- Reuse cosmetic filtering with a bounded per-session cache and avoid whole-page class monitoring on YouTube.
+- Add narrow first-party YouTube ad-request rules, delayed skip-control retries and SPA player replacement handling, while preserving ordinary video APIs and media preferences.
 - Preserve Chromium sandboxing, private-session isolation, consent prompts, signed distribution gates and Store-managed updates.
 - Add focused denial-of-service and file-race regression fixtures and remove generated JavaScript from the tab-test click helper.
 
