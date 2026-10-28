@@ -37,6 +37,9 @@ jobs:
       - run: npm run prepare:filters
       - run: npm test
       - run: xvfb-run -a npm run test:desktop
+      - name: Record actual YouTube playback or the observed service wall
+        run: xvfb-run -a npm run test:youtube:live
+        timeout-minutes: 3
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -193,3 +196,4 @@ jobs:
             exit 0
           fi
           gh release create "$TAG" release-files/* --target "$GITHUB_SHA" --prerelease --title "Sanad Browser $VERSION — Chromium desktop" --notes-file desktop/RELEASE_NOTES.md
+

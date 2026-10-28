@@ -1,4 +1,15 @@
-# Sanad Browser 1.3.2 — security maintenance
+# Sanad Browser 1.3.3 — earlier YouTube ad protection
+
+- Remove known advertising metadata before YouTube's initial inline player consumes it, and from scoped player/playlist/Shorts fetch and XHR responses.
+- Preserve the original Response, media URLs, request bodies, playback status, normal Shorts entries and opt-out behavior. Re-enabling protection also applies to subsequent documents.
+- Keep fixed packaged code, HTTPS checks, renderer sandboxing and exact shell-only IPC. No downloaded scriptlets, remote-page preload, debugging port or privileged page bindings are introduced.
+- Add native before-inline/fetch/XHR/reload regressions and a separate live YouTube playback probe that records service walls as inconclusive.
+
+This requires a new Microsoft Store submission. Live campaign coverage varies; there is no guarantee that every present or future YouTube advertisement is blocked. Server-inserted advertisements embedded in ordinary media are not independently removed by metadata pruning.
+
+---
+
+Sanad Browser 1.3.2 — security maintenance
 
 - Avoid exponential backtracking when resolving malformed dotted addresses; preserve normal hostnames, trailing-dot DNS, ports and literal search terms.
 - Pin each opened JSON/filter file to one descriptor and bound bytes actually read, preventing path-replacement and concurrent-growth bypasses of the size checks.

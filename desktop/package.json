@@ -1,6 +1,6 @@
 {
   "name": "sanad-browser-desktop",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Sanad Al-Haramain desktop browser powered by Chromium through Electron",
   "main": "main.cjs",
   "author": "Murad Aljohani",
@@ -9,13 +9,14 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/policy.test.cjs tests/updates.test.cjs tests/security.test.cjs tests/protection.test.cjs tests/store-package.test.cjs tests/bounded-file.test.cjs tests/performance.test.cjs",
+    "test": "node --test tests/policy.test.cjs tests/updates.test.cjs tests/security.test.cjs tests/protection.test.cjs tests/store-package.test.cjs tests/bounded-file.test.cjs tests/performance.test.cjs tests/youtube-data.test.cjs tests/youtube-injection.test.cjs",
     "prepare:filters": "node scripts/prepare-filters.cjs",
     "test:desktop": "node tests/desktop.test.cjs && node tests/tabs.test.cjs && node tests/protection-desktop.test.cjs",
     "pack": "npm run prepare:filters && electron-builder --dir --publish never",
     "dist:win": "npm run prepare:filters && electron-builder --win nsis portable --x64 --publish never",
     "dist:linux": "npm run prepare:filters && electron-builder --linux AppImage --x64 --publish never",
-    "dist:store": "npm run prepare:filters && electron-builder --config electron-builder.store.cjs --win appx --x64 --publish never"
+    "dist:store": "npm run prepare:filters && electron-builder --config electron-builder.store.cjs --win appx --x64 --publish never",
+    "test:youtube:live": "node tests/youtube-live.test.cjs"
   },
   "dependencies": {
     "@ghostery/adblocker": "2.20.1",
@@ -64,7 +65,9 @@
       "package.json",
       "store-distribution.cjs",
       "bounded-file.cjs",
-      "style-cache.cjs"
+      "style-cache.cjs",
+      "youtube-data.cjs",
+      "youtube-injection.cjs"
     ],
     "win": {
       "target": [
