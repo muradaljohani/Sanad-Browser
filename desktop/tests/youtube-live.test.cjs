@@ -34,7 +34,8 @@ async function main() {
     if (playing.length>=2 && Math.max(...playing.map(s=>s.time))-Math.min(...playing.map(s=>s.time))>0.5) {
       report.result=!report.samples.some(s=>s.ad||s.adMetadata) && playing.every(s=>s.hook && s.node==='undefined' && s.bridge==='undefined') ? 'playback-observed-no-ad-in-samples' : 'playback-observed-needs-review';
     }
-    await app.evaluate(({webContents}, filename) => { const wc=webContents.getAllWebContents().find(item=>item.getURL().startsWith('https://www.youtube.com/')); if(wc) return wc.capturePage().then(image=>require('node:fs').writeFileSync(filename,image.toPNG())); }, path.join(output,'youtube-live.png'));
+    const capture = await app.evaluate(({webContents}) => { const wc=webContents.getAllWebContents().find(item=>item.getURL().startsWith('https://www.youtube.com/')); if(wc) return wc.capturePage().then(image=>image.toPNG().toString('base64')); });
+    if(capture) fs.writeFileSync(path.join(output,'youtube-live.png'),Buffer.from(capture,'base64'));
   } catch(error) { report.error=error.message.slice(0,2000); }
   finally {
     if(app) await app.close();
