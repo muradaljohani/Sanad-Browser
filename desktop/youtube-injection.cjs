@@ -12,6 +12,7 @@ function createYouTubeInjection(wc, initialEnabled, inherited = false) {
         if (wc.debugger.isAttached() || wc.isDevToolsOpened()) return false;
         wc.debugger.attach('1.3'); owned = true;
         wc.debugger.once('detach', () => { detached = true; owned = false; identifier = undefined; installed = false; });
+        await wc.debugger.sendCommand('Page.enable');
       }
       if (desired !== installed) {
         if (identifier) { await wc.debugger.sendCommand('Page.removeScriptToEvaluateOnNewDocument', { identifier }); identifier = undefined; installed = false; }
@@ -21,7 +22,7 @@ function createYouTubeInjection(wc, initialEnabled, inherited = false) {
         }
       }
       return true;
-    } catch { return false; }
+    } catch (error) { console.warn('YouTube document protection unavailable:', error.message); return false; }
   };
   // Electron may defer debugger command replies until the first navigation.
   // Prime only newly created contents; never replace an adopted popup's POST/opener.
