@@ -1,3 +1,11 @@
+# 1.3.5 — Sanad browser identity
+
+- Replace Electron and old package product tokens in the User-Agent with one `SanadBrowser/<version>` identity.
+- Apply the identity before startup and to regular/private browsing sessions, retaining the runtime Chromium version and platform information.
+- Verify both network request headers and navigator.userAgent, including popup and private tabs. Authentication-provider policies remain independent of browser branding.
+
+---
+
 # 1.3.4 — Local data protection and efficient search/update paths
 
 - Encrypt application history, bookmarks and preferences using AES-256-GCM with an OS-protected random key, asynchronous writes and safe migration from JSON.
