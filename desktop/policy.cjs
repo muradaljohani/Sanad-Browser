@@ -1,5 +1,5 @@
 'use strict';
-const HOME = 'https://ip-murad.com/browser?surface=desktop';
+const HOME = 'https://sanadbrowser.com/web/?surface=desktop';
 const MAX_TABS = 32;
 const TRACKING_KEYS = /^(utm_.+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid)$/i;
 function safeURL(value, testMode = false) {
@@ -23,20 +23,24 @@ function resolveDestination(raw, testMode = false) {
     const url = safeURL(`${testMode && text.startsWith('localhost:') ? 'http' : 'https'}://${text}`, testMode);
     return url ? { url } : null;
   }
-  return { url: `https://ip-murad.com/browser?${new URLSearchParams({ surface: 'desktop', q: text.slice(0, 300) })}` };
+  return { url: `https://sanadbrowser.com/web/?${new URLSearchParams({ surface: 'desktop', q: text.slice(0, 300) })}` };
+}
+function isSearchPage(url) {
+  return (url.origin === 'https://sanadbrowser.com' && ['/web', '/web/'].includes(url.pathname)) || (url.origin === 'https://ip-murad.com' && url.pathname === '/browser');
 }
 function cleanURL(raw) {
   const url = safeURL(raw);
   if (!url) return null;
   const parsed = new URL(url);
   for (const key of [...parsed.searchParams.keys()]) if (TRACKING_KEYS.test(key)) parsed.searchParams.delete(key);
-  if (parsed.hostname === 'ip-murad.com' && parsed.pathname === '/browser') { parsed.searchParams.delete('surface'); if (parsed.searchParams.get('mode') === 'private') parsed.searchParams.delete('mode'); }
+  if (isSearchPage(parsed)) { parsed.searchParams.delete('surface'); if (parsed.searchParams.get('mode') === 'private') parsed.searchParams.delete('mode'); }
   return parsed.href;
 }
 function nativeSiteURL(raw, isPrivate = false, testMode = false) {
   const safe = safeURL(raw, testMode); if (!safe) return null;
   const url = new URL(safe);
-  if (url.hostname === 'ip-murad.com' && url.pathname === '/browser') {
+  if (isSearchPage(url)) {
+    url.protocol = 'https:'; url.hostname = 'sanadbrowser.com'; url.pathname = '/web/';
     url.searchParams.set('surface', 'desktop');
     if (isPrivate) url.searchParams.set('mode', 'private'); else if (url.searchParams.get('mode') === 'private') url.searchParams.delete('mode');
   }

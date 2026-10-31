@@ -1,11 +1,11 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, session, protocol, dialog, shell, clipboard, Menu, nativeTheme } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, protocol, dialog, shell, clipboard, Menu, nativeTheme, safeStorage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { readBoundedText } = require('./bounded-file.cjs');
 const { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender } = require('./policy.cjs');
-const { openStore } = require('./store.cjs');
+const { openEncryptedStore } = require('./store.cjs');
 const { createProtection } = require('./protection.cjs');
 const { pageActions } = require('./page-actions.cjs');
 const { createUpdateChecker, UPDATE_FEED } = require('./updates.cjs');
@@ -47,7 +47,7 @@ function snapshot() {
     downloads: [...downloads.values()].map(publicDownload), closedCount: closedTabs.length,
     notice, reader: active()?.reader || null, protectionSource: protection.source(), protectionRevision: protection.revision(), updatingProtection,
     versions: { chromium: process.versions.chrome, electron: process.versions.electron, app: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, distribution: storeDistribution ? 'microsoft-store' : 'direct' },
-    updates: updates?.snapshot(), licenceNotices
+    updates: updates?.snapshot(), storageProtection: store.storageProtection, licenceNotices
   };
 }
 function publish() {
@@ -369,6 +369,14 @@ async function command(action, data) {
   }
   publish(); return snapshot();
 }
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true; clearTimeout(publishTimer);
+  for (const tab of tabs) destroyView(tab);
+  tabs.length = 0;
+  try { await store?.flush(); } catch { /* Preserve the last committed snapshot. */ }
+  protection?.dispose(); app.quit();
+}
 async function createWindow() {
   win = new BrowserWindow({ width: 1280, height: 860, minWidth: 700, minHeight: 540, title: 'سَنَد الحرمين', icon: path.join(__dirname, 'assets/mark.png'), backgroundColor: '#101820', autoHideMenuBar: true, webPreferences: { ...preferences(session.defaultSession), preload: path.join(__dirname, 'preload.cjs') } });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -376,12 +384,12 @@ async function createWindow() {
   win.webContents.on('will-navigate', event => event.preventDefault());
   win.on('resize', layout);
   win.webContents.on('did-finish-load', publish);
-  win.on('close', () => { shuttingDown = true; clearTimeout(publishTimer); for (const tab of tabs) destroyView(tab); tabs.length = 0; try { store.flush(); } catch {} protection.dispose(); });
+  win.on('close', event => { if (!shuttingDown) { event.preventDefault(); void shutdown(); } });
   await win.loadURL('sanad-app://browser/index.html');
   createTab(homeURL);
 }
 app.whenReady().then(async () => {
-  store = openStore(app.getPath('userData'));
+  store = await openEncryptedStore(app.getPath('userData'), { safeStorage, onError: () => message('تعذّر فتح البيانات المحمية أو حفظها. بقي الملف الأصلي محفوظًا؛ راجع حالة حماية البيانات في «حول Sanad».') });
   const feedURL = testMode && safeURL(process.env.SANAD_BROWSER_TEST_UPDATE_URL, true) ? process.env.SANAD_BROWSER_TEST_UPDATE_URL : UPDATE_FEED;
   updates = storeDistribution ? createStoreUpdateChecker() : createUpdateChecker({ version: app.getVersion(), feedURL, changed: publish });
   nativeTheme.themeSource = store.state.preferences.theme;
@@ -401,5 +409,5 @@ app.whenReady().then(async () => {
   await createWindow();
 }).catch(error => { console.error(error.message); app.quit(); });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { if (!shuttingDown) { try { store?.flush(); } catch {} } });
+app.on('before-quit', event => { if (!shuttingDown && store) { event.preventDefault(); void shutdown(); } });
 

@@ -16,36 +16,51 @@ function parseRelease(value) {
   if (value.downloadPage !== undefined && value.downloadPage !== DOWNLOAD_PAGE) throw new Error('Unexpected download page');
   return { version: value.version, releaseUrl: value.downloadPage || releaseUrl, notes: (Array.isArray(value.notes) ? value.notes : []).filter(note => typeof note === 'string').slice(0, 6).map(note => note.slice(0, 300)) };
 }
-async function readBoundedJson(response) {
-  if (!response.ok || !response.headers.get('content-type')?.includes('application/json') || Number(response.headers.get('content-length') || 0) > 32768) throw new Error('Release feed unavailable');
+async function readBoundedJson(response, signal) {
+  if (!response.ok || !response.headers.get('content-type')?.includes('application/json') || Number(response.headers.get('content-length') || 0) > 32768) { void response.body?.cancel().catch(() => {}); throw new Error('Release feed unavailable'); }
   const reader = response.body?.getReader();
   if (!reader) throw new Error('Empty release feed');
-  const parts = []; let size = 0;
-  try {
+  const parts = []; let size = 0, abort;
+  const interrupted = new Promise((_, reject) => { abort = () => { reject(new Error('Release feed timeout')); void reader.cancel().catch(() => {}); }; signal.addEventListener('abort', abort, { once: true }); if (signal.aborted) abort(); });
+  const read = async () => { try {
     while (true) {
       const { done, value } = await reader.read(); if (done) break;
       size += value.byteLength;
-      if (size > 32768) { await reader.cancel(); throw new Error('Release feed too large'); }
+      if (size > 32768) { void reader.cancel().catch(() => {}); throw new Error('Release feed too large'); }
       parts.push(Buffer.from(value));
     }
-  } finally { reader.releaseLock(); }
-  return JSON.parse(Buffer.concat(parts).toString('utf8'));
+    return JSON.parse(Buffer.concat(parts).toString('utf8'));
+  } finally { reader.releaseLock(); } };
+  try { return await Promise.race([read(), interrupted]); }
+  finally { signal.removeEventListener('abort', abort); }
 }
-function createUpdateChecker({ version, feedURL = UPDATE_FEED, fetchImpl = fetch, now = Date.now, changed = () => {} }) {
+function createUpdateChecker({ version, feedURL = UPDATE_FEED, fetchImpl = fetch, now = Date.now, changed = () => {}, timeoutMs = 8000 }) {
   compareVersions(version, version);
   let state = { status: 'idle', latestVersion: null, checkedAt: null, releaseUrl: null, notes: [], installation: 'manual' };
-  let pending, lastAttempt = 0;
+  let pending, lastAttempt = null, verifiedRelease, etag;
   const check = ({ automatic = false } = {}) => {
     if (pending) return pending;
-    if (automatic && lastAttempt && now() - lastAttempt < 15 * 60 * 1000) return Promise.resolve({ ...state });
+    if (automatic && lastAttempt !== null && now() - lastAttempt < 15 * 60 * 1000) return Promise.resolve({ ...state });
     lastAttempt = now(); state = { ...state, status: 'checking', releaseUrl: null }; changed();
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 8000);
+    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
     pending = Promise.resolve().then(async () => {
       try {
         // A fixed first-party manifest. No cookies, account IDs, telemetry or
         // version-bearing query string. Never download or execute an installer.
-        const response = await fetchImpl(feedURL, { signal: controller.signal, redirect: 'error', credentials: 'omit', cache: 'no-store', headers: { accept: 'application/json' } });
-        const release = parseRelease(await readBoundedJson(response));
+        const headers = { accept: 'application/json' };
+        if (etag && verifiedRelease) headers['if-none-match'] = etag;
+        const response = await fetchImpl(feedURL, { signal: controller.signal, redirect: 'error', credentials: 'omit', cache: 'no-store', headers });
+        let release;
+        if (response.status === 304) {
+          void response.body?.cancel().catch(() => {});
+          if (!verifiedRelease) throw new Error('Unverified release');
+          release = verifiedRelease;
+        } else {
+          release = parseRelease(await readBoundedJson(response, controller.signal));
+          const tag = response.headers.get('etag');
+          etag = typeof tag === 'string' && /^(?:W\/)?"[\x21\x23-\x7e]{1,128}"$/.test(tag) ? tag : undefined;
+          verifiedRelease = release;
+        }
         const comparison = compareVersions(release.version, version);
         state = { ...state, status: comparison > 0 ? 'available' : comparison < 0 ? 'ahead' : 'current', latestVersion: release.version, releaseUrl: release.releaseUrl, notes: release.notes, checkedAt: now() };
       } catch {

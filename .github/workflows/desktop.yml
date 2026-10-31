@@ -92,6 +92,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/test-signature-policy.ps1
+      - name: Verify real Windows local encryption, restart and tamper rejection
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node tests/encryption-desktop.test.cjs
       - name: Verify signed Windows package before installation
         if: runner.os == 'Windows' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         shell: pwsh
