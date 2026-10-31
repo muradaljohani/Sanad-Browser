@@ -103,6 +103,6 @@
     }
   },
   "overrides": {
-    "minimatch": "file:vendor/minimatch-compat"
+    "minimatch": "https://raw.githubusercontent.com/muradaljohani/Sanad-Browser/bf98bfe92f45703c56ef5663e1f5e6df21733cb3/desktop/vendor/sanad-minimatch-compat-1.0.0.tgz"
   }
 }
