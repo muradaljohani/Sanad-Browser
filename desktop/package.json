@@ -103,6 +103,6 @@
     }
   },
   "overrides": {
-    "minimatch": "https://raw.githubusercontent.com/muradaljohani/Sanad-Browser/bf98bfe92f45703c56ef5663e1f5e6df21733cb3/desktop/vendor/sanad-minimatch-compat-1.0.0.tgz"
+    "minimatch": "https://raw.githubusercontent.com/muradaljohani/Sanad-Browser/db3ebed0297ab5502e8e19c65af9a6494d6fe8e6/desktop/vendor/sanad-minimatch-compat-1.0.1.tgz"
   }
 }
