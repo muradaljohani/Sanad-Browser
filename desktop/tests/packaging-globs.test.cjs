@@ -8,6 +8,7 @@ const path = require('node:path');
 const minimatch = require('minimatch');
 
 test('patched matcher retains callable and named APIs used by packaging dependencies', () => {
+  assert.equal(require('node:module').createRequire(require.resolve('minimatch'))('minimatch-core/package.json').version, '11.0.1');
   assert.equal(typeof minimatch, 'function'); assert.equal(typeof minimatch.minimatch, 'function');
   assert.equal(minimatch('src/state.cjs', '**/*.cjs'), true); assert.equal(minimatch.minimatch('src/state.cjs', '**/*.json'), false);
   assert.deepEqual(minimatch.match(['a.cjs', 'b.json'], '*.cjs'), ['a.cjs']);

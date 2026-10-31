@@ -1,6 +1,6 @@
 {
   "name": "@sanad/minimatch-compat",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Callable CommonJS compatibility for build tools, backed exclusively by patched minimatch 11.0.1",
   "license": "MIT",
