@@ -77,3 +77,8 @@ The Windows CI job actually installs Setup.exe and verifies the installed UI, en
 The desktop application encrypts its own history, bookmarks and preferences using AES-256-GCM and a random key protected by Electron's asynchronous OS vault. Existing JSON profiles migrate after a complete encrypted snapshot is committed. Unavailable keys or damaged encrypted profiles enter a read-only recovery state rather than overwriting the original file. About Sanad shows actual encryption availability; Linux basic_text is not treated as a secure vault. Website storage, downloads and explicit bookmark exports are separate from this scope.
 
 See [the Arabic research and implementation report](TOR-RESEARCH-AR.md) for source review, migration, threat boundaries, performance changes and tests. Source changes require a desktop release before installed users receive them.
+
+
+## Browser identity
+
+The runtime User-Agent identifies the application as `SanadBrowser/<app version>` and retains Chromium's actual OS, architecture and Chrome engine tokens. The global fallback is set before windows/sessions are created, and both regular/private sessions use the same normalization. See [User-Agent behavior and authentication limits](USER-AGENT.md). No fixed Chrome version, Google-specific identity override or authentication bypass is used.

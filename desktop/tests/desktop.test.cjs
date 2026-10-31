@@ -7,7 +7,9 @@ const os = require('node:os');
 const http = require('node:http');
 async function main() {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'sanad-desktop-'));
+  const receivedAgents = [];
   const server = http.createServer((request, response) => {
+    receivedAgents.push(request.headers['user-agent']);
     if (request.url === '/download') { response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="sanad-test.txt"' }); response.end('Sanad fixture download'); return; }
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     response.end(`<!doctype html><html><head><title>${request.url === '/second' ? 'Second fixture' : 'Sanad fixture'}</title><style>body{font-family:Arial,sans-serif;background:#f0f8f4;color:#173d2d;padding:30px}#layout{display:grid;grid-template-columns:1fr 1fr;width:200px;height:60px;background:rgb(52,168,83)}</style></head><body><h1>Sanad test page</h1><p>Chromium phrase · Chromium phrase</p><div id="layout"><span>DOM</span><span>CSS layout</span></div><a href="/second">Next page</a><a href="/download">Download</a><script>window.fixtureScript=7*6;</script></body></html>`);
@@ -24,7 +26,14 @@ async function main() {
     await poll(state => state.tabs[0]?.title === 'Sanad fixture' && !state.tabs[0].loading, 'initial page');
     const onPage = source => app.evaluate(({ webContents }, source) => { const page = webContents.getAllWebContents().find(wc => wc.getURL().startsWith('http://127.0.0.1:')); if (!page) throw new Error('Fixture missing'); return page.executeJavaScript(source); }, source);
     assert.deepEqual(await onPage('({node:typeof require, bridge:typeof window.sanadBrowser, process:typeof process})'), { node: 'undefined', bridge: 'undefined', process: 'undefined' });
-    assert((await onPage('navigator.userAgent')).includes(`SanadBrowser/${require('../package.json').version}`));
+    const agent = await onPage('navigator.userAgent');
+    assert(agent.endsWith(`SanadBrowser/${require('../package.json').version}`));
+    assert.doesNotMatch(agent, /Electron|sanad-browser-desktop/i);
+    assert.equal(receivedAgents[0], agent, 'the request header and page identity agree');
+    const identity = await app.evaluate(({ app, session }) => ({ fallback: app.userAgentFallback, regular: session.fromPartition('persist:sanad-web').getUserAgent() }));
+    assert.equal(identity.fallback, agent); assert.equal(identity.regular, agent);
+    const hints = await onPage('navigator.userAgentData ? navigator.userAgentData.toJSON() : null');
+    console.log(JSON.stringify({ check: 'actual-user-agent', userAgent: agent, clientHints: hints }));
     assert.deepEqual(await onPage('({script:window.fixtureScript,width:document.querySelector("#layout").getBoundingClientRect().width,display:getComputedStyle(document.querySelector("#layout")).display,color:getComputedStyle(document.querySelector("#layout")).backgroundColor})'), { script: 42, width: 200, display: 'grid', color: 'rgb(52, 168, 83)' });
     let state = await cmd('state'); assert.equal(state.tabs.length, 1); const firstId = state.activeId;
     await cmd('navigate', { value: `${base}/second` }); await poll(s => s.tabs[0].title === 'Second fixture' && s.tabs[0].back, 'forward navigation');
@@ -35,6 +44,8 @@ async function main() {
     let popupState = await cmd('state'); const popupId = popupState.tabs.find(tab => tab.id !== firstId).id;
     const popupPrivileges = await app.evaluate(({ webContents }, base) => webContents.getAllWebContents().filter(wc => wc.getURL().startsWith(base)).map(wc => wc.getLastWebPreferences()).map(prefs => ({ sandbox: prefs.sandbox, node: prefs.nodeIntegration, isolation: prefs.contextIsolation, preload: Boolean(prefs.preload) })), base);
     assert(popupPrivileges.every(prefs => prefs.sandbox && !prefs.node && prefs.isolation && !prefs.preload));
+    const popupAgents = await app.evaluate(({ webContents }, base) => Promise.all(webContents.getAllWebContents().filter(wc => wc.getURL().startsWith(base)).map(wc => wc.executeJavaScript('navigator.userAgent'))), base);
+    assert(popupAgents.every(value => value === agent), 'popup tabs inherit the same branded identity');
     const openerCount = await app.evaluate(async ({ webContents }, base) => { const values = await Promise.all(webContents.getAllWebContents().filter(wc => wc.getURL().startsWith(base)).map(wc => wc.executeJavaScript('Boolean(window.opener)'))); return values.filter(Boolean).length; }, base); assert.equal(openerCount, 1, 'popup retains the opener required by normal OAuth completion flows');
     await cmd('close', { id: popupId }); await poll(s => s.tabs.length === 1, 'close popup');
     await cmd('navigate', { value: 'javascript:alert(1)' }); assert.equal((await cmd('state')).tabs[0].url, `${base}/second`);
@@ -49,6 +60,9 @@ async function main() {
     await cmd('new', { private: true }); state = await poll(s => s.tabs.some(tab => tab.private && tab.title === 'Sanad fixture' && !tab.loading), 'private tab'); const privateId = state.activeId;
     const privatePartition = await app.evaluate(({ webContents }) => webContents.getAllWebContents().filter(wc => wc.getURL().startsWith('http://127.0.0.1:')).map(wc => ({ id: wc.id, persistent: wc.session.isPersistent() })));
     assert.equal(privatePartition.filter(item => !item.persistent).length, 1);
+    const privateAgent = await app.evaluate(({ webContents }, base) => webContents.getAllWebContents().find(wc => wc.getURL().startsWith(base) && !wc.session.isPersistent()).executeJavaScript('navigator.userAgent'), base);
+    assert.equal(privateAgent, agent, 'private browsing uses the same branded identity');
+    assert(receivedAgents.every(value => value === agent), 'all fixture requests, including private and popup tabs, use the branded header');
     await app.evaluate(async ({ webContents }, base) => { const pages = webContents.getAllWebContents().filter(wc => wc.getURL().startsWith(base)); const privatePage = pages.find(wc => !wc.session.isPersistent()); const regular = pages.find(wc => wc.session.isPersistent()); await regular.session.cookies.set({ url: base, name: 'regular-fixture', value: 'regular', expirationDate: Date.now() / 1000 + 3600 }); await privatePage.session.cookies.set({ url: base, name: 'private-fixture', value: 'private' }); await privatePage.executeJavaScript('localStorage.setItem("private-marker","private")'); return privatePage.session.cookies.get({ url: base }); }, base).then(cookies => { assert.equal(cookies.some(cookie => cookie.name === 'regular-fixture'), false); assert(cookies.some(cookie => cookie.name === 'private-fixture')); });
     await cmd('navigate', { value: `${base}/private-secret` }); await poll(s => s.tabs.find(tab => tab.id === privateId).url.endsWith('/private-secret'), 'private navigation'); assert(!(await cmd('state')).history.some(item => item.url.includes('private-secret')));
     await cmd('close', { id: privateId }); await poll(s => !s.tabs.some(tab => tab.private), 'close private session');
