@@ -1,3 +1,15 @@
+# 1.3.4 — Local data protection and efficient search/update paths
+
+- Encrypt application history, bookmarks and preferences using AES-256-GCM with an OS-protected random key, asynchronous writes and safe migration from JSON.
+- Preserve inaccessible or modified encrypted profiles in a read-only recovery state; About Sanad shows actual protection availability. Linux basic_text is not represented as secure encryption.
+- Open the lightweight official web-search entry directly from desktop, preserving query/filter/private-mode behavior.
+- Revalidate update metadata with ETag and bound stalled response bodies; Store-managed updates remain on the Store channel.
+- Replace vulnerable build-time minimatch implementations with patched 11.0.1 through a small legacy API adapter, with compatibility and amplification regression tests. Existing dependency/security/signature gates remain enabled.
+
+These source changes require a new desktop distribution. Store submission and trusted-publisher signing follow the existing release gates.
+
+---
+
 # Sanad Browser 1.3.3 — earlier YouTube ad protection
 
 - Remove known advertising metadata before YouTube's initial inline player consumes it, and from scoped player/playlist/Shorts fetch and XHR responses.

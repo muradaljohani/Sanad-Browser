@@ -1,6 +1,6 @@
 {
   "name": "sanad-browser-desktop",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "Sanad Al-Haramain desktop browser powered by Chromium through Electron",
   "main": "main.cjs",
   "author": "Murad Aljohani",
