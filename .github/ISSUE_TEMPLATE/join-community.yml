@@ -1,0 +1,61 @@
+name: "Join the Sanad Browser community | انضم لمجتمع سند الحرمين"
+description: "Introduce yourself and tell us how you would like to contribute. | عرّف بنفسك وكيف ترغب بالمساهمة."
+title: "[Community] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Welcome | أهلًا بك
+        Thank you for your interest in contributing to Sanad Browser.
+        نشكرك على اهتمامك بالمساهمة في تطوير متصفح سند الحرمين.
+
+        Contributions via issues and pull requests do **not** require organization membership.
+        المساهمة بالبلاغات وطلبات السحب لا تتطلب عضوية المنظمة.
+
+        Organization membership is by invitation and is not guaranteed.
+        عضوية المنظمة تكون بدعوة من المسؤولين ولا تُمنح تلقائيًا.
+
+        **Please do not post passwords, tokens, personal contact details, or security vulnerabilities here.**
+        **لا تنشر كلمات مرور أو رموز وصول أو بيانات اتصال خاصة أو ثغرات أمنية هنا.**
+        Report vulnerabilities privately: https://github.com/muradaljohani/Sanad-Browser/security
+  - type: input
+    id: github
+    attributes:
+      label: "GitHub username | اسم المستخدم"
+      description: "Your public GitHub handle | اسم حسابك العلني على GitHub"
+      placeholder: "@username"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Contribution area | مجال المساهمة"
+      description: "Choose your primary interest | اختر مجال اهتمامك الأساسي"
+      options:
+        - "Desktop / Electron / Chromium"
+        - "Security & privacy | الأمان والخصوصية"
+        - "Performance & testing | الأداء والاختبارات"
+        - "UI/UX & accessibility | التصميم وإمكانية الوصول"
+        - "Arabic / localization | التعريب والترجمة"
+        - "Documentation | التوثيق"
+        - "Other | أخرى"
+    validations:
+      required: true
+  - type: textarea
+    id: introduction
+    attributes:
+      label: "Introduction & ideas | نبذة وأفكارك"
+      description: "What would you like to help with? You may write in Arabic or English. | كيف ترغب بالمساعدة؟"
+      placeholder: "I can help with... / أستطيع المساعدة في..."
+    validations:
+      required: true
+  - type: dropdown
+    id: participation
+    attributes:
+      label: "Participation | نوع المشاركة"
+      options:
+        - "I want to contribute via pull requests | أريد المساهمة عبر طلبات السحب"
+        - "I want to discuss an idea first | أريد مناقشة فكرة"
+        - "I would also like to be considered for organization membership | أرغب أيضًا في النظر بطلب عضويتي في المنظمة"
+    validations:
+      required: true
