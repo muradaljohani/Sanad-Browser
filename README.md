@@ -7,6 +7,19 @@
 This repository contains the desktop browser application only. The website, account services, search backend, deployment credentials and historical prototypes are separate. Its initial import includes the browser source, tests and build workflows, without importing private Git history.
 
 ## What is included
+<!-- SANAD_COMMUNITY_INVITATION_START -->
+## Join the Sanad Browser Community | انضم إلى مجتمع تطوير سند الحرمين
+
+**ندعو المطورين والمصممين والمختبرين والباحثين الأمنيين ومهتمي المشاريع مفتوحة المصدر من السعودية والعالم للمساهمة في تطوير متصفح سند الحرمين.** نرحب بالمشاركة في Chromium/Electron، تحسين الأداء، الأمان والخصوصية، الواجهات، التعريب، إمكانية الوصول، الاختبارات والتوثيق.
+
+**We invite developers, designers, testers, security researchers and open-source enthusiasts worldwide** to help improve Sanad Browser. Contributions in Chromium/Electron, performance, privacy, security, UI/UX, accessibility, Arabic localization, tests and documentation are welcome.
+
+**[GitHub Organization / المنظمة](https://github.com/SanadBrowser)** · **[Introduce yourself / عرّف بنفسك](https://github.com/muradaljohani/Sanad-Browser/issues/new?template=join-community.yml)** · **[Contributing guide / دليل المساهمة](CONTRIBUTING.md)** · **[Official website / الموقع الرسمي](https://sanadbrowser.com/)**
+
+You can contribute through issues and pull requests without being an organization member. Organization membership requires an invitation from its administrators and is not automatic. / **يمكنك المساهمة دون عضوية المنظمة، والعضوية تُمنح بدعوة من المسؤولين.** Report security vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+<!-- SANAD_COMMUNITY_INVITATION_END -->
+
 
 - Chromium tabs with sandboxing, context isolation and no Node.js or privileged IPC bridge in remote pages.
 - Separate temporary private sessions, local bookmarks and browsing history.
