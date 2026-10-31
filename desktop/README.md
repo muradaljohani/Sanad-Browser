@@ -70,3 +70,10 @@ The current source targets Electron 45.1.0. `npm ci`, `npm audit --audit-level=m
 
 The Windows CI job actually installs Setup.exe and verifies the installed UI, engine version, hardening fuses, renderer flags and clean shutdown. `windows-install-proof` includes the screenshot and JSON status, including actual Authenticode state and binary digests. Publisher verification and the release gate are mandatory. The existing certificate-file signing path uses repository secrets `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` and the public approved-certificate variable `WIN_SIGNING_CERT_SHA1`; hardware/cloud keys need their provider-specific integration. A missing identity blocks release publication and is never replaced with self-signed trust. The installed executable and uninstaller, Setup and Portable files are checked against the pinned publisher. See RELEASE_NOTES.md for the limits of security and YouTube filtering; no 100% safety/ad-blocking guarantee is made.
 
+
+
+## Local profile encryption and Tor research
+
+The desktop application encrypts its own history, bookmarks and preferences using AES-256-GCM and a random key protected by Electron's asynchronous OS vault. Existing JSON profiles migrate after a complete encrypted snapshot is committed. Unavailable keys or damaged encrypted profiles enter a read-only recovery state rather than overwriting the original file. About Sanad shows actual encryption availability; Linux basic_text is not treated as a secure vault. Website storage, downloads and explicit bookmark exports are separate from this scope.
+
+See [the Arabic research and implementation report](TOR-RESEARCH-AR.md) for source review, migration, threat boundaries, performance changes and tests. Source changes require a desktop release before installed users receive them.

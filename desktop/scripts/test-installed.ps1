@@ -56,6 +56,7 @@ try {
   $about.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
   $null = Find-Control ("الإصدار $($package.version) · نسخة تجريبية")
   $null = Find-Control $package.devDependencies.electron
+  $null = Find-Control 'السجل والمفضلة والإعدادات مشفّرة على هذا الجهاز، والمفتاح محمي بخزنة النظام.'
   Save-WindowProof $root
   $renderers = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $process.Id -and $_.CommandLine -match '--type=renderer' })
   if ($renderers.Count -eq 0) { throw 'No renderer process was found.' }
@@ -67,7 +68,7 @@ try {
     $null = & (Join-Path $PSScriptRoot 'verify-windows-signatures.ps1') -Paths @($installer.FullName, $executable, $uninstaller) -ExpectedThumbprint $env:WIN_SIGNING_CERT_SHA1 -ReportPath (Join-Path $output 'installed-signatures.json')
     $trustedPublisherVerified = $true
   }
-  $report = [ordered]@{ version=$package.version; electron=$package.devDependencies.electron; installed=$true; windowOpened=$true; aboutVerified=$true; rendererSandboxSwitchesChecked=$true; fuseVerification=$true; signature=$signature; trustedPublisherVerified=$trustedPublisherVerified; signerThumbprint=$env:WIN_SIGNING_CERT_SHA1; setupSha256=(Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); exeSha256=(Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash.ToLowerInvariant() }
+  $report = [ordered]@{ version=$package.version; electron=$package.devDependencies.electron; installed=$true; windowOpened=$true; aboutVerified=$true; localEncryption='AES-256-GCM with OS-protected key'; rendererSandboxSwitchesChecked=$true; fuseVerification=$true; signature=$signature; trustedPublisherVerified=$trustedPublisherVerified; signerThumbprint=$env:WIN_SIGNING_CERT_SHA1; setupSha256=(Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); exeSha256=(Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash.ToLowerInvariant() }
   $report | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'installed-windows.json') -Encoding utf8
   $process.CloseMainWindow() | Out-Null
   if (-not $process.WaitForExit(15000)) { throw 'Installed browser did not exit cleanly.' }

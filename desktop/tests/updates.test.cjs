@@ -39,3 +39,32 @@ test('failed or oversized responses never claim an update is ready; retry recove
   response = Response.json(release('1.1.0')); await checker.check(); assert.equal(checker.snapshot().status, 'ahead');
 });
 
+
+test('conditional checks reuse only validated metadata and transfer no JSON on 304', async () => {
+  let calls = 0;
+  const checker = createUpdateChecker({ version: '1.2.0', fetchImpl: async (_url, options) => {
+    calls++;
+    if (calls === 1) { assert.equal(options.headers['if-none-match'], undefined); return Response.json(release('1.3.0'), { headers: { ETag: '"release-1"' } }); }
+    assert.equal(options.headers['if-none-match'], '"release-1"'); return new Response(null, { status: 304 });
+  } });
+  await checker.check(); await checker.check(); assert.equal(calls, 2); assert.equal(checker.snapshot().status, 'available'); assert.equal(checker.snapshot().latestVersion, '1.3.0');
+  const unknown = createUpdateChecker({ version: '1.2.0', fetchImpl: async () => new Response(null, { status: 304 }) });
+  await unknown.check(); assert.equal(unknown.snapshot().status, 'error');
+});
+
+test('stalled response bodies time out, cancel their stream and allow a later retry', async () => {
+  let cancelled = false, retry = false;
+  const checker = createUpdateChecker({ version: '1.2.0', timeoutMs: 20, fetchImpl: async () => retry ? Response.json(release('1.2.0')) : new Response(new ReadableStream({ cancel() { cancelled = true; } }), { headers: { 'Content-Type': 'application/json' } }) });
+  await checker.check(); assert.equal(checker.snapshot().status, 'error'); assert.equal(cancelled, true);
+  retry = true; await checker.check(); assert.equal(checker.snapshot().status, 'current');
+});
+
+test('invalid responses are cancelled and never establish a conditional validator', async () => {
+  let cancelled = false, count = 0;
+  const checker = createUpdateChecker({ version: '1.2.0', fetchImpl: async (_url, options) => {
+    assert.equal(options.headers['if-none-match'], undefined);
+    if (!count++) return new Response(new ReadableStream({ cancel() { cancelled = true; } }), { headers: { 'Content-Type': 'text/html', ETag: '"bad"' } });
+    return Response.json(release('1.2.0'));
+  } });
+  await checker.check(); assert.equal(cancelled, true); await checker.check(); assert.equal(checker.snapshot().status, 'current');
+});

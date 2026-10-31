@@ -154,6 +154,8 @@ function renderPanel() {
     append(element('p', 'about-version', `الإصدار ${state.versions.app} · ${state.versions.distribution === 'microsoft-store' ? 'Microsoft Store' : 'نسخة تجريبية'}`));
     const details = element('div', 'details');
     for (const [label, value] of [['النظام', `${state.versions.platform === 'win32' ? 'Windows' : state.versions.platform} · ${state.versions.arch}`], ['Chromium', state.versions.chromium], ['Electron', state.versions.electron]]) details.append(element('span', '', label), element('strong', '', value)); append(details);
+    const protectionText = { encrypted: 'السجل والمفضلة والإعدادات مشفّرة على هذا الجهاز، والمفتاح محمي بخزنة النظام.', unavailable: 'خزنة تشفير آمنة غير متاحة في بيئة النظام الحالية. البيانات المحلية غير مشفّرة.', locked: 'تعذّر فتح البيانات المحمية. الملف الأصلي محفوظ، والتغييرات الحالية لن تُحفظ فوقه.', error: 'تعذّر حفظ آخر تغيير. بقيت النسخة المحفوظة السابقة دون استبدال.' };
+    const storage = element('p', 'hint', protectionText[state.storageProtection?.status] || protectionText.unavailable); storage.setAttribute('aria-label', 'حالة تشفير البيانات المحلية'); append(storage);
     const update = state.updates || { status: 'idle' };
     const statusText = { 'store-managed': 'تُدار التحديثات بواسطة Microsoft Store', idle: 'تحقق من توفر إصدار جديد', checking: 'جارٍ التحقق من الإصدارات…', current: 'أنت تستخدم أحدث إصدار منشور', available: `إصدار جديد متاح: ${update.latestVersion}`, ahead: 'نسختك أحدث من الإصدار المنشور', error: 'تعذر التحقق. تحقق من الاتصال وأعد المحاولة.' };
     const card = element('section', 'update-card'); card.setAttribute('aria-label', 'تحديثات المتصفح');
