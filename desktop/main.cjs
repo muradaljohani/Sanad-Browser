@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { readBoundedText } = require('./bounded-file.cjs');
+const { brandedUserAgent } = require('./user-agent.cjs');
 const { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender } = require('./policy.cjs');
 const { openEncryptedStore } = require('./store.cjs');
 const { createProtection } = require('./protection.cjs');
@@ -21,6 +22,8 @@ const testMode = !app.isPackaged && process.env.SANAD_BROWSER_TEST_MODE === '1';
 const homeURL = testMode && safeURL(process.env.SANAD_BROWSER_TEST_URL, true) ? process.env.SANAD_BROWSER_TEST_URL : HOME;
 if (testMode && process.env.SANAD_BROWSER_TEST_PROFILE) app.setPath('userData', process.env.SANAD_BROWSER_TEST_PROFILE);
 app.setName('Sanad Browser');
+// Set the global default before creating any sessions, windows or popups.
+app.userAgentFallback = brandedUserAgent(app.userAgentFallback, app.getVersion());
 protocol.registerSchemesAsPrivileged([{ scheme: 'sanad-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }, { scheme: 'sanad-licenses', privileges: { standard: true, secure: true } }]);
 let win, store, protection, regularSession, privateSession, updates;
 const licenceNotices = fs.readFileSync(path.join(__dirname, 'LICENSE'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'THIRD_PARTY_NOTICES.md'), 'utf8');
@@ -75,7 +78,7 @@ function prepareSession(ses) {
     catch { return new Response('ملف تراخيص Chromium غير متاح في هذه الحزمة.', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
   });
   // Identify our own desktop surface after normal site navigation, including return links.
-  if (!ses.getUserAgent().includes('SanadBrowser/')) ses.setUserAgent(`${ses.getUserAgent()} SanadBrowser/${app.getVersion()}`);
+  ses.setUserAgent(brandedUserAgent(ses.getUserAgent(), app.getVersion()));
   protection.set(ses, store.state.preferences.protection);
   ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => permissionGrants.get(`${ses === privateSession ? 'private' : 'regular'}:${requestingOrigin}:${permission}`) === true);
   ses.setPermissionRequestHandler(async (wc, permission, callback, details) => {
