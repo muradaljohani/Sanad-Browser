@@ -40,6 +40,7 @@ async function main() {
     assert.equal(await shell.evaluate(() => window.menuZoomButton === document.querySelector('[aria-label="تكبير الصفحة"]') && window.menuZoomButton === document.activeElement), true, 'zoom updates retain the button and focus');
     await control('إعادة حجم الصفحة إلى 100%').click(); await poll(s => s.tabs[0].zoom === 1, 'zoom reset');
     await control('المظهر النهاري').click(); await poll(s => s.preferences.theme === 'light', 'theme action');
+    await shell.waitForFunction(() => getComputedStyle(document.querySelector('.tab.active')).backgroundColor === 'rgb(255, 255, 255)');
     await shell.locator('#page-preview').waitFor({ state: 'visible' });
     await shell.screenshot({ path: path.join(output, 'chrome-style-menu-light.png') });
     await control('البحث الصارم مفعّل ومقفل').click(); await heading('إجراء البحث الصارم');

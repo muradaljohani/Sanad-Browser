@@ -89,6 +89,7 @@ async function main() {
     for (const name of ['delta', 'epsilon', 'zeta', 'eta']) await add(name);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(900, 650));
     await shell.getByRole('button', { name: 'تمرير إلى التبويبات التالية', exact: true }).waitFor({ state: 'visible' });
+    await shell.waitForFunction(() => document.querySelector('#tabs').getAnimations({ subtree: true }).every(animation => !animation.effect?.target?.classList.contains('tab')));
     state = await cmd('state'); assert.equal(await shell.locator('#tab-count').textContent(), String(state.tabs.length));
     assert.equal(await shell.locator('#tabs').evaluate(root => root.scrollHeight <= root.clientHeight), true, 'overflow remains horizontal without clipping tabs vertically');
     await shell.emulateMedia({ reducedMotion: 'reduce' });
