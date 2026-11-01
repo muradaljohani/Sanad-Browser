@@ -4,8 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { readBoundedText } = require('./bounded-file.cjs');
-const { brandedUserAgent } = require('./user-agent.cjs');
+const { brandedUserAgent, userAgentOverride } = require('./user-agent.cjs');
+const { configureEnginePerformance } = require('./engine-performance.cjs');
+const { faviconAsset, omniboxSuggestions } = require('./network-assets.cjs');
 const { moveTabBefore } = require('./tab-order.cjs');
+const { normalizeSearchPreferences, officialSearchPage, searchPreferenceScript } = require('./search-preferences.cjs');
 const { readNetworkPrivacy, writeNetworkPrivacy, configureStartupPrivacy, configureSessionPrivacy, hardenWebContents, locationPermissionAllowed, validateConfig } = require('./location-privacy.cjs');
 const { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender } = require('./policy.cjs');
 const { openEncryptedStore } = require('./store.cjs');
@@ -30,17 +33,19 @@ const relaunchArgs = process.argv.slice(1);
 let networkPrivacy, privacyStartupError;
 try { networkPrivacy = readNetworkPrivacy(app.getPath('userData')); }
 catch (error) { privacyStartupError = error; networkPrivacy = { version: 1, enabled: true, port: 1024 }; }
+configureEnginePerformance(app.commandLine, networkPrivacy);
 configureStartupPrivacy(app.commandLine, networkPrivacy);
 app.on('web-contents-created', (_event, wc) => hardenWebContents(wc));
 // Set the global default before creating any sessions, windows or popups.
 app.userAgentFallback = brandedUserAgent(app.userAgentFallback, app.getVersion());
 protocol.registerSchemesAsPrivileged([{ scheme: 'sanad-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }, { scheme: 'sanad-licenses', privileges: { standard: true, secure: true } }]);
 let win, store, protection, regularSession, privateSession, updates;
-const licenceNotices = fs.readFileSync(path.join(__dirname, 'LICENSE'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'THIRD_PARTY_NOTICES.md'), 'utf8');
+const licenceNotices = fs.readFileSync(path.join(__dirname, 'LICENSE'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'THIRD_PARTY_NOTICES.md'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'ui/settings/THIRD_PARTY_LICENSES.txt'), 'utf8');
 let activeId, toolbarHeight = 100, overlay = false, overlayGeneration = 0, notice = '';
 let updatingProtection = false, shuttingDown = false;
-let publishTimer;
+let publishTimer, omniboxRequest;
 const tabs = [], closedTabs = [], downloads = new Map(), permissionGrants = new Map();
+const tabIcons = new Map();
 const preparedSessions = new Set();
 const sessionSetup = new WeakMap();
 const localFiles = new Map([
@@ -48,6 +53,9 @@ const localFiles = new Map([
   ['/renderer.js', ['ui/renderer.js', 'text/javascript; charset=utf-8']],
   ['/tab-strip.js', ['ui/tab-strip.js', 'text/javascript; charset=utf-8']],
   ['/browser-menu.js', ['ui/browser-menu.js', 'text/javascript; charset=utf-8']],
+  ['/omnibox.js', ['ui/omnibox.js', 'text/javascript; charset=utf-8']],
+  ['/settings.js', ['ui/settings/settings.js', 'text/javascript; charset=utf-8']],
+  ['/settings.css', ['ui/settings/settings.css', 'text/css; charset=utf-8']],
   ['/browser.css', ['ui/browser.css', 'text/css; charset=utf-8']],
   ['/mark.png', ['assets/mark.png', 'image/png']],
   ['/wordmark.svg', ['assets/wordmark.svg', 'image/svg+xml']]
@@ -58,7 +66,7 @@ const contents = () => active()?.view?.webContents;
 const publicDownload = item => ({ id: item.id, name: item.name, status: item.status, received: item.received, total: item.total, private: item.private });
 function snapshot() {
   return {
-    tabs: tabs.map(tab => ({ id: tab.id, title: tab.title, url: tab.url, private: tab.private, pinned: tab.pinned, muted: tab.muted, closing: Boolean(tab.closing), sleeping: !tab.view, loading: Boolean(tab.view?.webContents.isLoading()), back: Boolean(tab.view?.webContents.navigationHistory.canGoBack()), forward: Boolean(tab.view?.webContents.navigationHistory.canGoForward()), blocked: tab.blocked, error: tab.error, zoom: tab.zoom, diagnostics: tab.diagnostics || null })),
+    tabs: tabs.map(tab => ({ id: tab.id, title: tab.title, url: tab.url, favicon: tab.iconVersion ? `sanad-app://browser/favicon/${tab.id}?v=${tab.iconVersion}` : '', private: tab.private, pinned: tab.pinned, muted: tab.muted, closing: Boolean(tab.closing), sleeping: !tab.view, loading: Boolean(tab.view?.webContents.isLoading()), back: Boolean(tab.view?.webContents.navigationHistory.canGoBack()), forward: Boolean(tab.view?.webContents.navigationHistory.canGoForward()), blocked: tab.blocked, error: tab.error, zoom: tab.zoom, diagnostics: tab.diagnostics || null })),
     activeId, preferences: store.state.preferences, bookmarks: store.state.bookmarks, history: store.state.history,
     downloads: [...downloads.values()].map(publicDownload), closedCount: closedTabs.length,
     notice, reader: active()?.reader || null, protectionSource: protection.source(), protectionRevision: protection.revision(), updatingProtection,
@@ -165,10 +173,16 @@ function sessionFor(isPrivate) {
   return privateSession;
 }
 function remember(tab) {
-  if (networkPrivacy.enabled || tab.private || !mayRemember(tab.url, testMode)) return;
+  if (networkPrivacy.enabled || tab.private || store.state.preferences.search?.saveHistory === false || !mayRemember(tab.url, testMode)) return;
   store.state.history = [{ url: tab.url, title: tab.title, timestamp: Date.now() }, ...store.state.history.filter(item => item.url !== tab.url)].slice(0, 200);
   store.persist();
 }
+function publicSearchPreferences() { return normalizeSearchPreferences({ ...store.state.preferences.search, theme: store.state.preferences.theme }); }
+async function syncSearchPreferences(wc, action = 'sync') {
+  if (!wc || wc.isDestroyed() || !officialSearchPage(wc.getURL())) return;
+  try { await wc.executeJavaScriptInIsolatedWorld(1005, [{ code: searchPreferenceScript(publicSearchPreferences(), action) }]); } catch { /* A future ready document receives the current preferences. */ }
+}
+function syncAllSearchPages(action = 'sync') { for (const tab of tabs) if (tab.view) void syncSearchPreferences(tab.view.webContents, action); }
 function handleKeyboard(event, input) {
   if (input.type !== 'keyDown' || input.isComposing) return;
   const command = input.control || input.meta;
@@ -202,8 +216,18 @@ function attachView(tab, inheritedContents) {
   tab.view = view;
   win.contentView.addChildView(view);
   const wc = view.webContents;
-  tab.youtube = createYouTubeInjection(wc, store.state.preferences.protection, Boolean(inheritedContents));
-  wc.on('dom-ready', () => { void applyPageProtection(tab, wc); });
+  tab.youtube = createYouTubeInjection(wc, store.state.preferences.protection, Boolean(inheritedContents), userAgentOverride(ses.getUserAgent(), process.versions.chrome));
+  wc.on('dom-ready', () => { void syncSearchPreferences(wc); void applyPageProtection(tab, wc); });
+  wc.on('did-finish-load', () => { void syncSearchPreferences(wc); });
+  wc.on('page-favicon-updated', (_event, urls) => {
+    const url = urls.find(value => safeURL(value, testMode));
+    if (!url || url === tab.iconURL) return;
+    tab.iconURL = url; tab.iconRequest?.abort(); const controller = new AbortController(); tab.iconRequest = controller; const page = wc.getURL();
+    void faviconAsset(ses.fetch.bind(ses), url, controller.signal, testMode).then(asset => {
+      if (!asset || controller.signal.aborted || wc.isDestroyed() || wc.getURL() !== page || tab.view !== view) return;
+      tabIcons.set(tab.id, asset); tab.iconVersion = (tab.iconVersion || 0) + 1; publish();
+    });
+  });
   wc.setZoomMode('isolated');
   wc.setZoomFactor(tab.zoom);
   wc.setAudioMuted(tab.muted);
@@ -214,7 +238,7 @@ function attachView(tab, inheritedContents) {
     const menu = pageActions(params, { open: (url, privateMode, background = false) => { if (!valid()) return; const next = createTab(url, tab.private || privateMode, !background); if (next) { next.openerId = tab.id; if (background) void loadTabURL(next, next.url); } }, copy: text => { if (valid()) clipboard.writeText(text); }, run: action => { if (valid()) void command(action, {}).catch(() => message('تعذر تنفيذ الإجراء.')); } }, testMode);
     Menu.buildFromTemplate(menu).popup({ window: win, ...(params.frame ? { frame: params.frame } : {}) });
   });
-  for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void loadTabURL(tab, normalized); } });
+  for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; if (event === 'will-navigate' && e.isMainFrame !== false && tab.id === activeId && officialSearchPage(wc.getURL()) && officialSearchPage(target) && new URL(target).searchParams.get('panel') === 'native-settings') { e.preventDefault(); openPanel('settings'); return; } const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void loadTabURL(tab, normalized); } });
   wc.setWindowOpenHandler(details => {
     if (!safeURL(details.url, testMode) && details.url !== 'about:blank') { message('هذا النوع من الروابط غير مدعوم داخل المتصفح.'); return { action: 'deny' }; }
     if (tabs.length >= MAX_TABS) { message('وصلت إلى 32 تبويبًا. أغلق تبويبًا قبل فتح آخر.'); return { action: 'deny' }; }
@@ -243,7 +267,7 @@ function attachView(tab, inheritedContents) {
     publish();
   });
   wc.once('destroyed', () => { if (tab.view === view) finishClose(tab.id); });
-  wc.on('did-navigate', (_event, url) => { if (url === 'about:blank' && !inheritedContents && tab.url !== 'about:blank') return; tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
+  wc.on('did-navigate', (_event, url) => { if (url === 'about:blank' && !inheritedContents && tab.url !== 'about:blank') return; tab.iconRequest?.abort(); tab.iconURL = ''; tab.iconVersion = 0; tabIcons.delete(tab.id); tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
   wc.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { const normalized = nativeSiteURL(url, tab.private, testMode); if (normalized && normalized !== url) { void loadTabURL(tab, normalized); return; } tab.url = url; remember(tab); void applyPageProtection(tab, wc); publish(); } });
   wc.on('page-title-updated', (_event, title) => { tab.title = String(title).slice(0, 200); if (!networkPrivacy.enabled && !tab.private) { const item = store.state.history.find(item => item.url === tab.url); if (item) { item.title = tab.title; store.persist(); } } publish(); });
   for (const event of ['did-start-loading', 'did-stop-loading', 'media-started-playing', 'media-paused']) wc.on(event, publish);
@@ -297,6 +321,7 @@ function finishClose(id) {
   const i = tabs.findIndex(tab => tab.id === id);
   if (i < 0) return;
   const tab = tabs[i];
+  tab.iconRequest?.abort(); tabIcons.delete(id);
   if (!tab.private && mayRemember(tab.url, testMode)) { closedTabs.unshift({ url: tab.url, pinned: tab.pinned }); if (closedTabs.length > 10) closedTabs.pop(); }
   if (tab.view && !win.isDestroyed()) win.contentView.removeChildView(tab.view);
   tab.view = null; tabs.splice(i, 1);
@@ -357,6 +382,18 @@ async function command(action, data) {
   const wc = contents(), tab = active();
   switch (action) {
     case 'state': return snapshot();
+    case 'omnibox-suggest': {
+      omniboxRequest?.abort(); const request = new AbortController(); omniboxRequest = request;
+      return { suggestions: await omniboxSuggestions(wc.session.fetch.bind(wc.session), data.value, publicSearchPreferences(), Boolean(tab.private || networkPrivacy.enabled), request.signal) };
+    }
+    case 'preconnect': { const url = safeURL(data.url, testMode); if (url && !tab.private && !networkPrivacy.enabled && !store.state.preferences.search?.dataSaver) wc.session.preconnect({ url: new URL(url).origin, numSockets: 1 }); break; }
+    case 'settings': openPanel('settings'); break;
+    case 'search-preferences': {
+      const next = normalizeSearchPreferences(data.value);
+      const { theme, ...search } = next;
+      store.state.preferences.search = search; store.state.preferences.theme = theme; nativeTheme.themeSource = theme; store.persist(); syncAllSearchPages(); break;
+    }
+    case 'search-cache-clear': syncAllSearchPages('clear-cache'); message('تم مسح نتائج البحث والاقتراحات المؤقتة.'); break;
     case 'new': createTab(homeURL, data.private === true || (data.private !== false && Boolean(tab?.private))); focusAddress(); break;
     case 'activate': activate(data.id, data.focus !== 'tab-strip'); break;
     case 'tab-move': moveTab(data.id, typeof data.beforeId === 'string' ? data.beforeId : null); break;
@@ -383,8 +420,8 @@ async function command(action, data) {
       store.state.bookmarks = sanitizeBookmarks([...store.state.bookmarks, ...imported]); store.persist(); message(`أُضيفت المفضلة. لديك الآن ${store.state.bookmarks.length} رابطًا.`); break;
     }
     case 'bookmark-export': { const result = await dialog.showSaveDialog(win, { title: 'تصدير المفضلة', defaultPath: 'sanad-bookmarks.json', filters: [{ name: 'JSON', extensions: ['json'] }] }); if (!result.canceled) fs.writeFileSync(result.filePath, JSON.stringify({ version: 1, bookmarks: store.state.bookmarks }, null, 2)); break; }
-    case 'history-clear': store.state.history = []; store.persist(); break;
-    case 'theme': store.state.preferences.theme = store.state.preferences.theme === 'dark' ? 'light' : 'dark'; nativeTheme.themeSource = store.state.preferences.theme; store.persist(); break;
+    case 'history-clear': store.state.history = []; store.persist(); syncAllSearchPages('clear-history'); break;
+    case 'theme': store.state.preferences.theme = store.state.preferences.theme === 'dark' ? 'light' : 'dark'; nativeTheme.themeSource = store.state.preferences.theme; store.persist(); syncAllSearchPages(); break;
     case 'protection': store.state.preferences.protection = data.value === true; for (const ses of preparedSessions) protection.set(ses, store.state.preferences.protection); for (const target of tabs) if (target.view) void applyPageProtection(target, target.view.webContents); store.persist(); break;
     case 'network-privacy': {
       const config = validateConfig({ version: 1, enabled: data.enabled, port: data.port });
@@ -495,6 +532,7 @@ app.whenReady().then(async () => {
   protocol.handle('sanad-app', request => {
     const url = new URL(request.url);
     const file = url.hostname === 'browser' && localFiles.get(url.pathname);
+    if (url.hostname === 'browser' && url.pathname.startsWith('/favicon/')) { const icon = tabIcons.get(url.pathname.slice('/favicon/'.length)); return icon ? new Response(icon.data, { headers: { 'Content-Type': icon.mime, 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; script-src 'none'" } }) : new Response('Not found', { status: 404 }); }
     if (!file) return new Response('Not found', { status: 404 });
     return new Response(fs.readFileSync(path.join(__dirname, file[0])), { headers: { 'Content-Type': file[1], 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" } });
   });

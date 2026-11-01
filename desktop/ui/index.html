@@ -1,18 +1,19 @@
 <!doctype html>
-<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>سَنَد الحرمين</title><link rel="stylesheet" href="browser.css"><script src="tab-strip.js" defer></script><script src="browser-menu.js" defer></script><script src="renderer.js" defer></script></head>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>سَنَد الحرمين</title><link rel="stylesheet" href="browser.css"><link rel="stylesheet" href="settings.css"><script src="tab-strip.js" defer></script><script src="browser-menu.js" defer></script><script src="omnibox.js" defer></script><script src="settings.js" defer></script><script src="renderer.js" defer></script></head>
 <body>
 <header id="chrome">
   <div class="tab-row"><img class="brand" src="wordmark.svg" alt="Sanad"><button id="tabs-prev" aria-label="تمرير إلى التبويبات السابقة" hidden>→</button><div id="tabs" role="tablist" aria-label="التبويبات" aria-orientation="horizontal"></div><button id="tabs-next" aria-label="تمرير إلى التبويبات التالية" hidden>←</button><button id="new-tab" aria-label="تبويب جديد" title="تبويب جديد (Ctrl+T)">＋</button><button id="tab-search" aria-label="البحث في التبويبات" title="البحث في التبويبات (Ctrl+Shift+A)">⌄<small id="tab-count">1</small></button><span id="tab-announcement" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span></div>
   <div class="toolbar">
     <button id="back" aria-label="رجوع" title="رجوع">→</button><button id="forward" aria-label="تقدم" title="تقدم">←</button><button id="reload" aria-label="إعادة تحميل" title="إعادة تحميل">↻</button><button id="home" aria-label="الرئيسية" title="الرئيسية">⌂</button>
     <form id="address-form"><span id="connection" aria-label="اتصال مشفر">◉</span><input id="address" aria-label="عنوان الموقع أو عبارة البحث" placeholder="ابحث أو اكتب عنوان موقع" dir="auto" autocomplete="off" spellcheck="false"><button id="bookmark" type="button" aria-label="حفظ في المفضلة" title="المفضلة (Ctrl+D)">☆</button></form>
-    <button id="strict-search" aria-label="البحث الصارم مفعّل ومقفل؛ عرض الإجراء المطبّق" aria-haspopup="dialog" title="البحث الصارم مفعّل ومقفل؛ عرض الإجراء المطبّق"><span id="strict-search-icon" aria-hidden="true"></span><span>بحث صارم</span></button><button id="protection" aria-label="حماية الخصوصية" title="حماية الخصوصية">◈<small id="blocked-count"></small></button><button id="downloads-button" aria-label="التنزيلات" title="التنزيلات">↓</button><button id="account" aria-label="حساب سَنَد" title="حساب سَنَد">♙</button><button id="menu-button" aria-label="أدوات المتصفح" title="أدوات المتصفح" aria-haspopup="dialog" aria-expanded="false" aria-controls="panel">⋮</button>
+    <button id="protection" aria-label="حماية الخصوصية" title="حماية الخصوصية">◈<small id="blocked-count"></small></button><button id="downloads-button" aria-label="التنزيلات" title="التنزيلات">↓</button><button id="account" aria-label="حساب سَنَد" title="حساب سَنَد">♙</button><button id="menu-button" aria-label="أدوات المتصفح" title="أدوات المتصفح" aria-haspopup="dialog" aria-expanded="false" aria-controls="panel">⋮</button>
   </div>
   <div id="find-bar" hidden><label for="find-input">بحث في الصفحة</label><input id="find-input" type="search" placeholder="ابحث في هذه الصفحة" maxlength="200" autocomplete="off"><span id="find-count" role="status"></span><button id="find-prev" aria-label="المطابقة السابقة">↑</button><button id="find-next" aria-label="المطابقة التالية">↓</button><button id="find-close" aria-label="إغلاق البحث في الصفحة">×</button></div>
   <p id="network-status" class="network-status" role="status" hidden></p><p id="notice" role="status" hidden></p><p id="page-error" role="alert" hidden></p>
 </header>
 <main id="page-placeholder"><p>سَنَد الحرمين</p></main>
 <img id="page-preview" alt="" aria-hidden="true" hidden>
+<div id="address-suggestions" role="listbox" aria-label="اقتراحات شريط العناوين" hidden></div>
 <dialog id="panel" aria-labelledby="panel-title"><div class="panel-heading"><h1 id="panel-title"></h1><button id="close-panel" aria-label="إغلاق">×</button></div><div id="panel-content"></div></dialog>
 </body></html>
 

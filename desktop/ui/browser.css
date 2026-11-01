@@ -113,4 +113,17 @@
 .strict-policy-heading>span{display:flex}
 .strict-policy-steps{margin:12px 0;padding-inline-start:24px;font-size:14px;line-height:1.9}
 .strict-policy-steps li{margin-block:10px}
+#panel.settings-panel{width:min(820px,calc(100vw - 40px));background:var(--surface)}
+#address-suggestions{position:fixed;z-index:4;max-height:min(360px,60vh);overflow:auto;padding:7px;border:1px solid var(--line);border-radius:0 0 16px 16px;background:var(--surface);box-shadow:0 14px 26px #0003;scrollbar-width:thin}
+#address-suggestions[hidden]{display:none}
+.omnibox-option{display:flex;align-items:center;justify-content:flex-start;gap:12px;width:100%;min-height:46px;padding:8px 12px;border-radius:9px;text-align:start}
+.omnibox-option:hover,.omnibox-option[aria-selected=true]{background:var(--selected)}
+.omnibox-option-icon{display:flex;color:var(--muted);flex:none}
+.omnibox-option-text{display:grid;gap:3px;min-width:0;flex:1}
+.omnibox-option strong{font-size:13px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.omnibox-option small{color:var(--muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab-site-symbol img{display:block;width:17px;height:17px;object-fit:contain}.tab-site-symbol img[hidden],.tab-site-symbol .tab-site-initial[hidden]{display:none}
+.tab.loading .tab-site-symbol>*{display:none}
+.tab.dragging{opacity:1;z-index:10;will-change:transform;box-shadow:0 6px 16px #0004;cursor:grabbing;transition:none}
+.pointer-dragging,.pointer-dragging *{cursor:grabbing!important}.tab-select{touch-action:none}
 @media(pointer:coarse){.browser-menu-item{min-height:44px}.tab-row{height:48px}#tabs{height:43px}.tab{height:41px}.tab>button.tab-select{height:40px}}

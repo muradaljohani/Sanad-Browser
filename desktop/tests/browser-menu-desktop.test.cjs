@@ -46,13 +46,13 @@ async function main() {
     await control('البحث الصارم مفعّل ومقفل').click(); await heading('إجراء البحث الصارم');
     assert.equal(await shell.locator('#panel input,#panel select').count(), 0);
     assert((await shell.locator('#panel-content').textContent()).includes('لا يوجد خيار لإيقافه'));
-    assert.equal(await shell.locator('#strict-search').evaluate(node => getComputedStyle(node).color), 'rgb(19, 115, 51)');
+    assert.equal(await shell.locator('.strict-policy-heading').evaluate(node => getComputedStyle(node).color), 'rgb(19, 115, 51)');
     assert.deepEqual((await cmd('state')).searchPolicy, { level: 'strict', locked: true });
     await shell.screenshot({ path: path.join(output, 'strict-search-procedure-light.png') });
     await dismiss();
     assert.equal(await shell.locator('#page-preview').getAttribute('src'), null, 'the page image is discarded after closing');
     assert.equal(await app.evaluate(({ webContents }, base) => webContents.getAllWebContents().find(wc => wc.getURL() === base + '/').executeJavaScript('window.pageMarker'), base), 99);
-    await control('البحث الصارم مفعّل ومقفل؛ عرض الإجراء المطبّق').click(); await heading('إجراء البحث الصارم'); await dismiss();
+    await menu(); await control('البحث الصارم مفعّل ومقفل').click(); await heading('إجراء البحث الصارم'); await dismiss();
     for (const [key, shift, title] of [['H', false, 'السجل على هذا الجهاز'], ['J', false, 'التنزيلات'], ['O', true, 'المفضلة']]) { await shortcut(key, shift); await heading(title); await dismiss(); }
     for (const [label, title] of [['السجل', 'السجل على هذا الجهاز'], ['التنزيلات', 'التنزيلات'], ['المفضلة', 'المفضلة'], ['البحث في التبويبات', 'التبويبات'], ['حماية الخصوصية', 'حماية الخصوصية'], ['حول Sanad', 'حول Sanad']]) { await menu(); await shell.locator('#panel').getByRole('button', { name: label, exact: true }).click(); await heading(title); await dismiss(); }
     await menu(); await control('علامة تبويب جديدة').click(); state = await poll(s => s.tabs.length === 2 && s.activeId !== original, 'new tab from menu');
@@ -65,7 +65,7 @@ async function main() {
     await poll(s => !s.tabs[0].loading, 'ready for exports');
     for (const [label, filename] of [['حفظ الصفحة PDF', 'sanad-page.pdf'], ['حفظ صورة الصفحة', 'sanad-page.png'], ['حفظ نسخة دون اتصال', 'sanad-page.mhtml']]) {
       await menu(); await shell.locator('summary').filter({ hasText: 'الحفظ والمشاركة' }).click(); await control(label).click();
-      const file = path.join(profile, filename); const end = Date.now() + 15000; while (!fs.existsSync(file) && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 50));
+      const file = path.join(profile, filename); const end = Date.now() + 15000; while ((!fs.existsSync(file) || fs.statSync(file).size <= 100) && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 50));
       assert(fs.statSync(file).size > 100, 'real export ' + filename);
     }
     await app.evaluate(({ webContents }, base) => { const wc = webContents.getAllWebContents().find(wc => wc.getURL() === base + '/'); wc.testPrints = []; wc.print = (options, callback) => { wc.testPrints.push(options); callback(true); }; }, base);

@@ -1,10 +1,16 @@
-# 1.3.7 — Clear browser controls and permanent strict-search lock
+# 1.3.7 — Fluent tabs, shared settings and the new start page
 
 - Refine tabs with connected active-tab curves, clear close targets, compact pinned tabs, and a rounded address bar.
 - Replace the tools grid with grouped menu rows, icons, shortcuts, expandable save/tools groups, and stable zoom controls.
 - Add actual system printing and shortcuts for printing, saving, history, bookmarks and downloads.
 - Show a permanent green strict-search lock that opens a clear explanation of the enforced search policy. It has no disable control.
 - Keep a bounded page image only in memory while a shell panel is open, then discard it when closed or the active tab changes.
+- Bundle the same settings component as the web app for offline desktop use. Language, region, appearance, suggestions, history and result preferences apply to the app and its official search pages. Native connection options remain in an explicit app section.
+- Add a 150 ms omnibox with local and optional public suggestions, keyboard selection and cancellation; private/disabled input is never sent for suggestions.
+- Add session-routed, bounded favicons and pointer dragging driven by requestAnimationFrame and translate3d, retaining the original page renderers.
+- Add the dark glass start page, local digital clock and bookmark speed dial on the official web surface; the strict-search lock appears in settings and search controls rather than the home page.
+- Enable GPU rasterization, zero-copy, parallel downloads and back/forward caching. QUIC stays disabled in local-proxy mode.
+- Use the requested stable SanadBrowser/1.0.0 network identity and branded Client Hints, retaining the real Chromium engine. The application release version remains 1.3.7.
 
 ---
 

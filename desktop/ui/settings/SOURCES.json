@@ -1,0 +1,15 @@
+{
+  "repository": "muradaljohani/MURAD4321",
+  "commit": "4b299ae743faf5e846760898ded757e7ef7351b9",
+  "component": "src/components/browser/components/BrowserSettings.tsx",
+  "dependencies": {
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "lucide-react": "0.546.0"
+  },
+  "license": "MIT; React MIT; Lucide ISC",
+  "sha256": {
+    "settings.js": "86c6b08e0afe480546d7a16770720a78f417db0f7dff068e37f375875eb4deee",
+    "settings.css": "111979d9f8803393489b9545bea10e6ac45790371bc99b2b49c238df18238976"
+  }
+}

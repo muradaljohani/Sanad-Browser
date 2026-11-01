@@ -5,9 +5,12 @@ const { randomUUID } = require('node:crypto');
 const { safeURL, mayRemember, sanitizeBookmarks } = require('./policy.cjs');
 const { readBoundedText } = require('./bounded-file.cjs');
 const { createStateCipher, MAX_STATE_BYTES } = require('./state-encryption.cjs');
+const { normalizeSearchPreferences } = require('./search-preferences.cjs');
 function normalizeState(saved = {}) {
   if (!saved || typeof saved !== 'object' || Array.isArray(saved)) saved = {};
-  const preferences = { theme: saved.preferences?.theme === 'light' ? 'light' : 'dark', protection: saved.preferences?.protection !== false };
+  const theme = saved.preferences?.theme === 'light' ? 'light' : 'dark';
+  const { theme: _searchTheme, ...search } = normalizeSearchPreferences(saved.preferences?.search);
+  const preferences = { theme, protection: saved.preferences?.protection !== false, search };
   let bookmarks = [];
   try { bookmarks = sanitizeBookmarks(saved.bookmarks ?? []); } catch {}
   const history = Array.isArray(saved.history) ? saved.history.slice(0, 200).filter(entry => entry && safeURL(entry.url) && mayRemember(entry.url)).map(entry => ({ url: entry.url, title: String(entry.title ?? '').slice(0, 200), timestamp: Number(entry.timestamp) || 0 })) : [];
@@ -83,4 +86,5 @@ async function openEncryptedStore(directory, { safeStorage, platform = process.p
   return result;
 }
 module.exports = { openStore, openEncryptedStore };
+
 

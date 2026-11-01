@@ -55,6 +55,7 @@ window.SanadBrowserMenu = function createBrowserMenu({ root, command, openPanel,
   row(more, 'إراحة التبويبات غير النشطة', 'sleep', run('suspend')).title = 'احفظ ما تكتبه أولًا؛ تُحمّل التبويبات المريحة من جديد عند فتحها.';
   row(more, 'أدوات المطور', 'code', run('devtools'), 'Ctrl+Shift+I');
   const settings = group();
+  row(settings, 'الإعدادات', 'settings', run('settings'), '', true);
   row(settings, 'حماية الخصوصية', 'shield', () => openPanel('privacy'), '', true);
   const theme = row(settings, 'المظهر النهاري', 'theme', () => void command('theme'));
   row(settings, 'حول Sanad', 'info', () => openPanel('about'), '', true);

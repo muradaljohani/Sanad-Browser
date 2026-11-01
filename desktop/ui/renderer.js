@@ -1,8 +1,8 @@
 'use strict';
 const api = window.sanadBrowser;
 const $ = id => document.getElementById(id);
-let state, panelName = '', panelBody, filterInput, lastActiveId, lastReaderText, lastReaderTitle, lastPrivacyKey = '', networkPortDraft, menuController, panelRequest = 0;
-const titles = { menu: 'سَنَد الحرمين', tabs: 'التبويبات', bookmarks: 'المفضلة', history: 'السجل على هذا الجهاز', downloads: 'التنزيلات', privacy: 'حماية الخصوصية', 'search-policy': 'إجراء البحث الصارم', reader: 'وضع القراءة', performance: 'أداء الصفحة', about: 'حول Sanad', licenses: 'التراخيص والمصادر المفتوحة' };
+let state, panelName = '', panelBody, filterInput, lastActiveId, lastReaderText, lastReaderTitle, lastPrivacyKey = '', networkPortDraft, menuController, settingsController, lastSettingsKey = '', panelRequest = 0;
+const titles = { menu: 'سَنَد الحرمين', settings: 'إعدادات المتصفح', tabs: 'التبويبات', bookmarks: 'المفضلة', history: 'السجل على هذا الجهاز', downloads: 'التنزيلات', privacy: 'حماية الخصوصية', 'search-policy': 'إجراء البحث الصارم', reader: 'وضع القراءة', performance: 'أداء الصفحة', about: 'حول Sanad', licenses: 'التراخيص والمصادر المفتوحة' };
 const normalize = value => String(value).normalize('NFKC').replace(/[\u064b-\u065f\u0670\u0640]/g, '').toLowerCase();
 const iconPaths = {
   back: ['M5 12h14', 'm13 6 6 6-6 6'], forward: ['M5 12h14', 'm11 6-6 6 6 6'],
@@ -20,6 +20,7 @@ const iconPaths = {
   image: ['M3 3h18v18H3Z', 'm3 17 6-6 4 4 3-3 5 5', 'M16 7h.01'], copy: ['M8 8h13v13H8Z', 'M16 4V2H2v14h2'],
   tools: ['M14 6a6 6 0 0 0-8 8L2 18l4 4 4-4a6 6 0 0 0 8-8l-4 4-4-4Z'], performance: ['M3 20V10', 'M9 20V4', 'M15 20v-7', 'M21 20V8'],
   sleep: ['M20 15A8 8 0 0 1 9 4a8 8 0 1 0 11 11'], code: ['m8 6-6 6 6 6', 'm16 6 6 6-6 6', 'm14 3-4 18'], theme: ['M12 3a9 9 0 1 0 0 18Z'], info: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18', 'M12 11v6', 'M12 7h.01'],
+  settings: ['M4 7h16', 'M4 17h16', 'M8 4v6', 'M16 14v6'],
   search: ['M10 16a6 6 0 1 0 0-12 6 6 0 0 0 0 12', 'm15 15 6 6'],
   close: ['m6 6 12 12', 'M6 18 18 6'], lock: ['M7 10V7a5 5 0 0 1 10 0v3', 'M5 10h14v11H5Z'],
   star: ['m12 3 2.8 5.7 6.3 .9 -4.6 4.5 1.1 6.3 -5.6 -3 -5.6 3 1.1 -6.3 L3 9.6l6.2 -.9Z']
@@ -38,16 +39,24 @@ async function command(action, data = {}) {
   catch { $('notice').hidden = false; $('notice').textContent = 'تعذر تنفيذ الإجراء. جرّب مرة أخرى.'; }
 }
 const tabStrip = window.SanadTabStrip({ root: $('tabs'), previous: $('tabs-prev'), next: $('tabs-next'), count: $('tab-count'), announcement: $('tab-announcement'), command });
+const omnibox = window.SanadOmnibox({ input: $('address'), form: $('address-form'), list: $('address-suggestions'), setIcon, query: value => api.command('omnibox-suggest', { value }), navigate: value => void command('navigate', { value }), preconnect: url => void api.command('preconnect', { url }).catch(() => {}), showOverlay: () => {
+  if (panelName) return;
+  const request = ++panelRequest;
+  void command('overlay', { value: true }).then(next => { if (request === panelRequest && !panelName && next?.pagePreview && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(next.pagePreview) && next.pagePreview.length < 2100000) { $('page-preview').src = next.pagePreview; $('page-preview').hidden = false; } });
+}, hideOverlay: () => { if (!panelName) { panelRequest++; clearPreview(); void command('overlay', { value: false }); } } });
 async function go(url, newTab = false) { closePanel(); if (newTab) await command('new'); await command('navigate', { value: url }); }
 function clearPreview() { $('page-preview').hidden = true; $('page-preview').removeAttribute('src'); }
-function closePanel() { const wasReader = panelName === 'reader'; panelName = ''; panelRequest++; clearPreview(); $('panel').close(); $('menu-button').setAttribute('aria-expanded', 'false'); void command('overlay', { value: false }); if (wasReader) void command('reader-clear'); }
+function disposeSettings() { settingsController?.unmount(); settingsController = null; lastSettingsKey = ''; }
+function closePanel() { const wasReader = panelName === 'reader'; omnibox.close(); disposeSettings(); panelName = ''; panelRequest++; clearPreview(); $('panel').close(); $('menu-button').setAttribute('aria-expanded', 'false'); void command('overlay', { value: false }); if (wasReader) void command('reader-clear'); }
 function openPanel(name) {
   if (name === 'find') {
     closePanel(); $('find-bar').hidden = false; $('find-input').focus(); $('find-input').select(); return;
   }
   if (!titles[name]) return;
+  omnibox.close();
+  disposeSettings();
   if (name === 'privacy') { networkPortDraft = String(state?.locationPrivacy?.port || 9050); lastPrivacyKey = ''; }
-  panelName = name; const request = ++panelRequest; lastReaderText = lastReaderTitle = undefined; $('panel').classList.toggle('reader-panel', name === 'reader'); $('panel').classList.toggle('browser-menu', name === 'menu'); $('menu-button').setAttribute('aria-expanded', String(name === 'menu')); $('panel-title').textContent = titles[name]; $('panel-content').replaceChildren();
+  panelName = name; const request = ++panelRequest; lastReaderText = lastReaderTitle = undefined; $('panel').classList.toggle('reader-panel', name === 'reader'); $('panel').classList.toggle('settings-panel', name === 'settings'); $('panel').classList.toggle('browser-menu', name === 'menu'); $('menu-button').setAttribute('aria-expanded', String(name === 'menu')); $('panel-title').textContent = titles[name]; $('panel-content').replaceChildren();
   filterInput = null;
   if (['tabs', 'bookmarks', 'history'].includes(name)) {
     filterInput = element('input', 'filter'); filterInput.type = 'search'; filterInput.placeholder = `ابحث في ${titles[name]}`;
@@ -73,6 +82,15 @@ function renderPanel() {
   if (!state || !panelName || !panelBody) return;
   if (panelName === 'menu') {
     menuController?.update(state); return;
+  }
+  if (panelName === 'settings') {
+    const value = { ...state.preferences.search, theme: state.preferences.theme };
+    const key = JSON.stringify([value, state.history.length]);
+    if (lastSettingsKey === key && settingsController) return;
+    lastSettingsKey = key;
+    const props = { value, historyCount: state.history.length, onChange: next => void command('search-preferences', { value: next }), onClearHistory: () => void command('history-clear'), onClearCache: () => void command('search-cache-clear'), onFullscreen: () => { closePanel(); void command('fullscreen'); }, onOpenAppPrivacy: () => openPanel('privacy') };
+    if (settingsController) settingsController.update(props); else settingsController = window.SanadSettings.mount(panelBody, props);
+    return;
   }
   if (panelName === 'reader' && state.reader?.text === lastReaderText && state.reader?.title === lastReaderTitle && panelBody.childElementCount > 0) return;
   if (panelName === 'privacy' && document.activeElement?.id === 'network-proxy-port') return;
@@ -209,8 +227,9 @@ function renderPanel() {
 function render(next) {
   state = next; const tab = state.tabs.find(item => item.id === state.activeId); if (!tab) return;
   document.documentElement.dataset.theme = state.preferences.theme;
-  if (lastActiveId !== state.activeId || document.activeElement !== $('address')) $('address').value = tab.url === 'https://ip-murad.com/browser?surface=desktop' ? '' : tab.url;
-  if (lastActiveId !== state.activeId) { $('find-bar').hidden = true; $('find-input').value = ''; $('find-count').textContent = ''; if ($('panel').open) { panelName = ''; panelRequest++; clearPreview(); $('panel').close(); $('menu-button').setAttribute('aria-expanded', 'false'); } }
+  if (lastActiveId !== state.activeId) omnibox.close();
+  if (lastActiveId !== state.activeId || document.activeElement !== $('address')) { let home = false; try { const url = new URL(tab.url); home = url.origin === 'https://sanadbrowser.com' && /^\/web\/?$/.test(url.pathname) && !url.searchParams.has('q') && !url.searchParams.has('url'); } catch {} $('address').value = home ? '' : tab.url; }
+  if (lastActiveId !== state.activeId) { $('find-bar').hidden = true; $('find-input').value = ''; $('find-count').textContent = ''; if ($('panel').open) { disposeSettings(); panelName = ''; panelRequest++; clearPreview(); $('panel').close(); $('menu-button').setAttribute('aria-expanded', 'false'); } }
   lastActiveId = state.activeId;
   $('back').disabled = !tab.back; $('forward').disabled = !tab.forward; setIcon($('reload'), tab.loading ? 'close' : 'reload'); $('reload').setAttribute('aria-label', tab.loading ? 'إيقاف التحميل' : 'إعادة تحميل');
   const marked = state.bookmarks.some(item => item.url === tab.url); setIcon($('bookmark'), 'star', marked); $('bookmark').setAttribute('aria-pressed', String(marked));
@@ -221,16 +240,15 @@ function render(next) {
   if (tab.private) $('connection').textContent = 'خاص'; else if (localDocument) $('connection').textContent = 'محلي'; else setIcon($('connection'), 'lock'); $('connection').setAttribute('aria-label', tab.private ? 'تبويب خاص' : localDocument ? 'مستند محلي' : 'اتصال مشفر');
   $('notice').textContent = state.notice; $('notice').hidden = !state.notice; $('page-error').textContent = tab.error; $('page-error').hidden = !tab.error;
   tabStrip.update(state);
+  omnibox.update(state);
   $('new-tab').disabled = state.tabs.length >= 32;
   if (state.found) $('find-count').textContent = `${state.found.current}/${state.found.total}`;
   renderPanel();
 }
-$('address-form').addEventListener('submit', event => { event.preventDefault(); void command('navigate', { value: $('address').value }); });
 for (const [id, action] of [['back', 'back'], ['forward', 'forward'], ['home', 'home'], ['bookmark', 'bookmark'], ['account', 'account']]) $(id).addEventListener('click', () => void command(action));
 $('reload').addEventListener('click', () => void command(state?.tabs.find(tab => tab.id === state.activeId)?.loading ? 'stop' : 'reload'));
 $('new-tab').addEventListener('click', () => void command('new')); $('tab-search').addEventListener('click', () => openPanel('tabs'));
 $('protection').addEventListener('click', () => openPanel('privacy')); $('downloads-button').addEventListener('click', () => openPanel('downloads')); $('menu-button').addEventListener('click', () => openPanel('menu'));
-$('strict-search').addEventListener('click', () => openPanel('search-policy')); setIcon($('strict-search-icon'), 'lock');
 $('close-panel').addEventListener('click', closePanel); $('panel').addEventListener('cancel', closePanel); $('panel').addEventListener('click', event => { if (event.target === $('panel')) closePanel(); });
 $('find-input').addEventListener('input', () => void command('find', { value: $('find-input').value }));
 for (const [id, forward] of [['find-prev', false], ['find-next', true]]) $(id).addEventListener('click', () => void command('find', { value: $('find-input').value, forward, next: true }));

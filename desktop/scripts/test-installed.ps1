@@ -51,7 +51,10 @@ try {
     throw "Installed UI control missing: $Name"
   }
   $menu = Find-Control 'أدوات المتصفح'
-  $menu.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+  $pattern = $null
+  if ($menu.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke() }
+  elseif ($menu.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) { $pattern.Expand() }
+  else { throw 'Installed menu has no accessible activation pattern.' }
   $about = Find-Control 'حول Sanad'
   $about.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
   $null = Find-Control ("الإصدار $($package.version) · نسخة تجريبية")
@@ -80,3 +83,4 @@ try {
   }
   Write-Output 'Actual Windows installer, installed UI, engine version, fuse configuration, renderer security, clean exit and unsafe flag rejection passed.'
 } finally { if ($process -and -not $process.HasExited) { $process.Kill() } }
+

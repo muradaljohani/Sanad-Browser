@@ -108,6 +108,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: node tests/browser-menu-desktop.test.cjs
+      - name: Verify shared offline settings, favicon and omnibox on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node tests/shared-settings-desktop.test.cjs
       - name: Verify signed Windows package before installation
         if: runner.os == 'Windows' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         shell: pwsh
