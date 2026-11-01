@@ -1,6 +1,6 @@
 {
   "name": "sanad-browser-desktop",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Sanad Al-Haramain desktop browser powered by Chromium through Electron",
   "main": "main.cjs",
   "author": "Murad Aljohani",
@@ -9,9 +9,9 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/policy.test.cjs tests/updates.test.cjs tests/security.test.cjs tests/protection.test.cjs tests/store-package.test.cjs tests/bounded-file.test.cjs tests/performance.test.cjs tests/youtube-data.test.cjs tests/youtube-injection.test.cjs tests/state-encryption.test.cjs tests/packaging-globs.test.cjs tests/user-agent.test.cjs tests/location-privacy.test.cjs tests/tab-order.test.cjs tests/search-preferences.test.cjs tests/network-assets.test.cjs tests/chrome-import.test.cjs tests/browser-cloud.test.cjs",
+    "test": "node --test tests/policy.test.cjs tests/updates.test.cjs tests/security.test.cjs tests/protection.test.cjs tests/store-package.test.cjs tests/bounded-file.test.cjs tests/performance.test.cjs tests/youtube-data.test.cjs tests/youtube-injection.test.cjs tests/state-encryption.test.cjs tests/packaging-globs.test.cjs tests/user-agent.test.cjs tests/location-privacy.test.cjs tests/tab-order.test.cjs tests/search-preferences.test.cjs tests/network-assets.test.cjs tests/chrome-import.test.cjs tests/browser-cloud.test.cjs tests/profile-vault.test.cjs",
     "prepare:filters": "node scripts/prepare-filters.cjs",
-    "test:desktop": "node tests/desktop.test.cjs && node tests/tabs.test.cjs && node tests/protection-desktop.test.cjs && node tests/location-privacy-desktop.test.cjs && node tests/tab-strip-desktop.test.cjs && node tests/browser-menu-desktop.test.cjs && node tests/shared-settings-desktop.test.cjs && node tests/browser-account-desktop.test.cjs",
+    "test:desktop": "node tests/desktop.test.cjs && node tests/tabs.test.cjs && node tests/protection-desktop.test.cjs && node tests/location-privacy-desktop.test.cjs && node tests/tab-strip-desktop.test.cjs && node tests/browser-menu-desktop.test.cjs && node tests/shared-settings-desktop.test.cjs && node tests/browser-account-desktop.test.cjs && node tests/profile-vault-desktop.test.cjs",
     "pack": "npm run prepare:filters && electron-builder --dir --publish never",
     "dist:win": "npm run prepare:filters && electron-builder --win nsis portable --x64 --publish never",
     "dist:linux": "npm run prepare:filters && electron-builder --linux AppImage --x64 --publish never",
@@ -80,7 +80,15 @@
       "browser-cloud.cjs",
       "browser-sync-controller.mjs",
       "browser-sync-model.mjs",
-      "chrome-import.cjs"
+      "chrome-import.cjs",
+      "protected-document.cjs",
+      "profile-manager.cjs",
+      "vault-model.mjs",
+      "private-vault.cjs",
+      "vault-sync-controller.mjs",
+      "vault-actions.cjs",
+      "page-preload.cjs",
+      "extensions-manager.cjs"
     ],
     "win": {
       "target": [

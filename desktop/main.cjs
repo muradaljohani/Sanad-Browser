@@ -11,6 +11,10 @@ const { moveTabBefore } = require('./tab-order.cjs');
 const { normalizeSearchPreferences, officialSearchPage, searchPreferenceScript } = require('./search-preferences.cjs');
 const { readNetworkPrivacy, writeNetworkPrivacy, configureStartupPrivacy, configureSessionPrivacy, hardenWebContents, locationPermissionAllowed, validateConfig } = require('./location-privacy.cjs');
 const { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender } = require('./policy.cjs');
+const { openProfileManager } = require('./profile-manager.cjs');
+const { openPrivateVault } = require('./private-vault.cjs');
+const { createExtensionsManager } = require('./extensions-manager.cjs');
+const { createVaultActions, handleFormSubmission } = require('./vault-actions.cjs');
 const { openEncryptedStore } = require('./store.cjs');
 const { createNativeAccount } = require('./browser-cloud.cjs');
 const { parseAuthCallback } = require('./browser-account-state.cjs');
@@ -42,7 +46,8 @@ app.on('web-contents-created', (_event, wc) => hardenWebContents(wc));
 // Set the global default before creating any sessions, windows or popups.
 app.userAgentFallback = brandedUserAgent(app.userAgentFallback, app.getVersion());
 protocol.registerSchemesAsPrivileged([{ scheme: 'sanad-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }, { scheme: 'sanad-licenses', privileges: { standard: true, secure: true } }]);
-let win, store, protection, regularSession, privateSession, updates, browserAccount;
+let win, store, protection, regularSession, privateSession, updates, browserAccount,profileManager,privateVault,vaultActions,extensionsManager;
+let switchingProfile=false,profileEpoch=0,sessionsReady=false;
 const pendingAuthURLs=[];
 const primaryInstance=app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
@@ -79,7 +84,10 @@ function snapshot() {
   return {
     tabs: tabs.map(tab => ({ id: tab.id, title: tab.title, url: tab.url, favicon: tab.iconVersion ? `sanad-app://browser/favicon/${tab.id}?v=${tab.iconVersion}` : '', private: tab.private, pinned: tab.pinned, muted: tab.muted, closing: Boolean(tab.closing), sleeping: !tab.view, loading: Boolean(tab.view?.webContents.isLoading()), back: Boolean(tab.view?.webContents.navigationHistory.canGoBack()), forward: Boolean(tab.view?.webContents.navigationHistory.canGoForward()), blocked: tab.blocked, error: tab.error, zoom: tab.zoom, diagnostics: tab.diagnostics || null })),
     activeId, preferences: store.state.preferences, bookmarks: store.state.bookmarks, history: store.state.history,
-    downloads: [...downloads.values()].map(publicDownload), closedCount: closedTabs.length,
+    profiles:profileManager?{activeId:profileManager.active.id,entries:profileManager.list(),protection:profileManager.protection.status}:null,
+    extensions:extensionsManager?.status(),
+    vault:privateVault?{protection:privateVault.protection.status,passwords:privateVault.metadata().passwords.length,autofill:privateVault.metadata().autofill.length}:null,
+    downloads: [...downloads.values()].filter(x=>!x.profileId||x.profileId===profileManager?.active.id).map(publicDownload), closedCount: closedTabs.length,
     notice, reader: active()?.reader || null, protectionSource: protection.source(), protectionRevision: protection.revision(), updatingProtection,
     versions: { chromium: process.versions.chrome, electron: process.versions.electron, app: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, distribution: storeDistribution ? 'microsoft-store' : 'direct' },
     updates: updates?.snapshot(), storageProtection: store.storageProtection, licenceNotices,
@@ -89,9 +97,9 @@ function snapshot() {
   };
 }
 function publish() {
-  browserAccount?.changed();
-  if (publishTimer || shuttingDown) return;
-  publishTimer = setTimeout(() => { publishTimer = null; if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('sanad-browser:state', snapshot()); }, 50);
+  if(!switchingProfile){rememberSession();browserAccount?.changed();}
+  if (publishTimer || shuttingDown || switchingProfile) return;
+  publishTimer = setTimeout(() => { publishTimer = null; if (!switchingProfile && win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('sanad-browser:state', snapshot()); }, 50);
 }
 function message(value) { notice = String(value).slice(0, 250); publish(); }
 function layout() {
@@ -154,7 +162,7 @@ function prepareSession(ses) {
     const names = { media: 'الكاميرا أو الميكروفون', geolocation: 'موقعك', notifications: 'الإشعارات' };
     try {
       const result = await dialog.showMessageBox(win, { type: 'question', title: 'إذن الموقع', message: `${origin}\nيطلب الوصول إلى ${names[permission]}.`, buttons: ['رفض', 'السماح لهذه الجلسة'], defaultId: 0, cancelId: 0, noLink: true });
-      const allow = result.response === 1 && !wc.isDestroyed() && new URL(wc.getURL()).origin === origin;
+      const allow = result.response === 1 && tab.profileId===profileManager.active.id && tab.id===activeId && !wc.isDestroyed() && new URL(wc.getURL()).origin === origin;
       permissionGrants.set(key, allow); callback(allow);
     } catch { callback(false); }
   });
@@ -166,7 +174,7 @@ function prepareSession(ses) {
     const pageURL = wc?.getURL();
     if (!source || source.id !== activeId || ongoing.length >= 3 || !downloadSourceAllowed(item.getURLChain(), pageURL, safeURL, testMode)) { event.preventDefault(); message('مُنع تنزيل من تبويب غير نشط أو غير آمن، أو تجاوز حد التنزيلات المتزامنة.'); return; }
     const name = downloadName(item.getFilename());
-    const entry = { id: crypto.randomUUID(), name, received: 0, total: item.getTotalBytes(), status: 'progressing', private: Boolean(source.private), item, path: '' };
+    const entry = { id: crypto.randomUUID(), name, received: 0, total: item.getTotalBytes(), status: 'progressing', profileId:profileManager?.active.id, private: Boolean(source.private), item, path: '' };
     if (!testMode) item.setSaveDialogOptions({ defaultPath: path.join(app.getPath('downloads'), name) });
     if (downloads.size >= 200) for (const [id, old] of downloads) { if (!['progressing', 'paused'].includes(old.status)) downloads.delete(id); if (downloads.size < 150) break; }
     if (testMode) item.setSavePath(path.join(app.getPath('userData'), entry.name.replace(/[^a-zA-Z0-9._-]/g, '_')));
@@ -186,17 +194,19 @@ function sessionFor(isPrivate) {
   return privateSession;
 }
 function remember(tab) {
+  if(!tabs.includes(tab)||tab.profileId!==profileManager.active.id)return;
   if (networkPrivacy.enabled || tab.private || store.state.preferences.search?.saveHistory === false || !mayRemember(tab.url, testMode)) return;
   store.state.history = [{ url: tab.url, title: tab.title, timestamp: Date.now() }, ...store.state.history.filter(item => item.url !== tab.url)].slice(0, 200);
   store.persist();
 }
 function publicSearchPreferences() { return normalizeSearchPreferences({ ...store.state.preferences.search, theme: store.state.preferences.theme }); }
 async function syncSearchPreferences(wc, action = 'sync') {
-  if (!wc || wc.isDestroyed() || !officialSearchPage(wc.getURL())) return;
+  if (!tabs.some(tab=>tab.profileId===profileManager.active.id&&tab.view?.webContents===wc) || !wc || wc.isDestroyed() || !officialSearchPage(wc.getURL())) return;
   try { await wc.executeJavaScriptInIsolatedWorld(1005, [{ code: searchPreferenceScript(publicSearchPreferences(), action) }]); } catch { /* A future ready document receives the current preferences. */ }
 }
 function syncAllSearchPages(action = 'sync') { for (const tab of tabs) if (tab.view) void syncSearchPreferences(tab.view.webContents, action); }
 function handleKeyboard(event, input) {
+  if(switchingProfile){event.preventDefault();return;}
   if (input.type !== 'keyDown' || input.isComposing) return;
   const command = input.control || input.meta;
   const key = input.key.toLowerCase();
@@ -225,7 +235,7 @@ function handleKeyboard(event, input) {
 async function commandFromKeyboard(action) { try { await command(action, {}); } catch { message('تعذر تنفيذ الإجراء. جرّب مرة أخرى.'); } }
 function attachView(tab, inheritedContents) {
   const ses = sessionFor(tab.private);
-  const view = new WebContentsView({ webPreferences: preferences(ses), ...(inheritedContents ? { webContents: inheritedContents } : {}) });
+  const view = new WebContentsView({ webPreferences: {...preferences(ses),preload:path.join(__dirname,'page-preload.cjs')}, ...(inheritedContents ? { webContents: inheritedContents } : {}) });
   tab.view = view;
   win.contentView.addChildView(view);
   const wc = view.webContents;
@@ -253,6 +263,7 @@ function attachView(tab, inheritedContents) {
   });
   for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; if (event === 'will-navigate' && e.isMainFrame !== false && tab.id === activeId && officialSearchPage(wc.getURL()) && officialSearchPage(target) && ['native-settings','native-sync'].includes(new URL(target).searchParams.get('panel'))) { e.preventDefault(); openPanel(new URL(target).searchParams.get('panel')==='native-sync'?'sync':'settings'); return; } const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void loadTabURL(tab, normalized); } });
   wc.setWindowOpenHandler(details => {
+    if(switchingProfile||!tabs.includes(tab)||tab.profileId!==profileManager.active.id)return {action:'deny'};
     if (!safeURL(details.url, testMode) && details.url !== 'about:blank') { message('هذا النوع من الروابط غير مدعوم داخل المتصفح.'); return { action: 'deny' }; }
     if (tabs.length >= MAX_TABS) { message('وصلت إلى 32 تبويبًا. أغلق تبويبًا قبل فتح آخر.'); return { action: 'deny' }; }
     return { action: 'allow', outlivesOpener: true, createWindow: options => {
@@ -282,7 +293,7 @@ function attachView(tab, inheritedContents) {
   wc.once('destroyed', () => { if (tab.view === view) finishClose(tab.id); });
   wc.on('did-navigate', (_event, url) => { if (url === 'about:blank' && !inheritedContents && tab.url !== 'about:blank') return; tab.iconRequest?.abort(); tab.iconURL = ''; tab.iconVersion = 0; tabIcons.delete(tab.id); tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
   wc.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { const normalized = nativeSiteURL(url, tab.private, testMode); if (normalized && normalized !== url) { void loadTabURL(tab, normalized); return; } tab.url = url; remember(tab); void applyPageProtection(tab, wc); publish(); } });
-  wc.on('page-title-updated', (_event, title) => { tab.title = String(title).slice(0, 200); if (!networkPrivacy.enabled && !tab.private) { const item = store.state.history.find(item => item.url === tab.url); if (item) { item.title = tab.title; store.persist(); } } publish(); });
+  wc.on('page-title-updated', (_event, title) => { if(!tabs.includes(tab)||tab.profileId!==profileManager.active.id)return;tab.title = String(title).slice(0, 200); if (!networkPrivacy.enabled && !tab.private) { const item = store.state.history.find(item => item.url === tab.url); if (item) { item.title = tab.title; store.persist(); } } publish(); });
   for (const event of ['did-start-loading', 'did-stop-loading', 'media-started-playing', 'media-paused']) wc.on(event, publish);
   wc.on('did-fail-load', (_event, code, _description, url, isMainFrame) => { if (isMainFrame && code !== -3) { tab.error = networkPrivacy.enabled ? 'تعذر فتح الصفحة عبر الوسيط المحلي. تحقق من تشغيله؛ لا يتحول المتصفح تلقائيًا إلى اتصال مباشر.' : 'تعذر فتح الصفحة. تحقق من الاتصال أو جرّب إعادة التحميل.'; tab.url = safeURL(url, testMode) || tab.url; publish(); } });
   wc.on('render-process-gone', () => { tab.error = 'توقفت الصفحة. أعد تحميلها للمتابعة.'; publish(); });
@@ -300,7 +311,7 @@ function createTab(url = homeURL, isPrivate = false, load = true, inheritedConte
   if (tabs.length >= MAX_TABS) { message('وصلت إلى 32 تبويبًا. أغلق تبويبًا قبل فتح آخر.'); return null; }
   const safe = allowBlank && url === 'about:blank' ? url : nativeSiteURL(url, isPrivate, testMode);
   if (!safe) return null;
-  const tab = { id: crypto.randomUUID(), title: 'تبويب جديد', url: safe, private: Boolean(isPrivate), pinned: false, muted: false, blocked: 0, error: '', zoom: 1, view: null };
+  const tab = { id: crypto.randomUUID(), profileId:profileManager.active.id, title: 'تبويب جديد', url: safe, private: Boolean(isPrivate), pinned: false, muted: false, blocked: 0, error: '', zoom: 1, view: null };
   tabs.push(tab);
   attachView(tab, inheritedContents);
   if (load) { activate(tab.id); void loadTabURL(tab, safe); }
@@ -375,6 +386,7 @@ function bookmark() {
 }
 function changeZoom(value) { const tab = active(); if (!tab || !Number.isFinite(value)) return; tab.zoom = Math.max(.5, Math.min(2, Math.round(value * 10) / 10)); tab.view?.webContents.setZoomFactor(tab.zoom); publish(); }
 async function applyPageProtection(tab, wc) {
+  if(!tabs.includes(tab)||tab.profileId!==profileManager.active.id||tab.view?.webContents!==wc)return;
   if (wc.isDestroyed() || tab.view?.webContents !== wc) return;
   const epoch = tab.protectionEpoch = (tab.protectionEpoch || 0) + 1;
   const url = wc.getURL(), enabled = store.state.preferences.protection;
@@ -392,9 +404,17 @@ async function applyPageProtection(tab, wc) {
   } catch { /* Filter failures never grant page privileges or disable TLS. */ }
 }
 async function command(action, data) {
+  if(switchingProfile&&action!=='state')throw Error('جارٍ تبديل ملف التعريف.');
+  if(action.startsWith('download-')&&downloads.get(data.id)?.profileId!==profileManager.active.id)return snapshot();
   const wc = contents(), tab = active();
   switch (action) {
     case 'state': return snapshot();
+    case 'extension-install': case 'extension-toggle': case 'extension-remove': await extensionsManager.run(action,data);break;
+    case 'profile-create': {const next=await profileManager.create(data.label,data.colour);await switchProfile(next.id);openPanel('sync');break;}
+    case 'profile-switch': await switchProfile(data.id);openPanel('sync');break;
+    case 'profile-rename': await profileManager.rename(profileManager.active.id,data.label,data.colour);break;
+    case 'profile-archive': await profileManager.archive(data.id,data.archived!==false);break;
+    case 'sync-selection': case 'sync-pause': await browserAccount.run(action,data);break;
     case 'omnibox-suggest': {
       omniboxRequest?.abort(); const request = new AbortController(); omniboxRequest = request;
       return { suggestions: await omniboxSuggestions(wc.session.fetch.bind(wc.session), data.value, publicSearchPreferences(), Boolean(tab.private || networkPrivacy.enabled), request.signal) };
@@ -529,12 +549,51 @@ async function applyCloudSnapshot({snapshot:incoming,restore,restoreDocument,inc
   publish();
   return {bookmarks:Math.max(0,nextBookmarks.length-beforeCounts.bookmarks),history:Math.max(0,nextHistory.length-beforeCounts.history),tabs:Math.max(0,tabs.length-beforeCounts.tabs),settings:Object.keys(incoming.settings||{}).length};
 }
+function rememberSession(){if(!store||!sessionsReady||switchingProfile||networkPrivacy.enabled)return;store.state.session=tabs.filter(tab=>!tab.private&&mayRemember(tab.url)).slice(0,32).map(tab=>({url:tab.url,title:tab.title,pinned:tab.pinned,active:tab.id===activeId}));store.persist();}
+function restoreSession(){sessionsReady=false;const saved=store.state.session||[];let selected;for(const item of saved){const tab=createTab(item.url,false,false);if(!tab)continue;tab.title=item.title;tab.pinned=item.pinned;destroyView(tab);if(item.active)selected=tab.id;}if(tabs.length)activate(selected||tabs[0].id);else createTab(homeURL);sessionsReady=true;}
+async function startProfileServices(){
+ const currentStore=store,currentVault=privateVault,epoch=profileEpoch,profileId=profileManager.active.id;
+ extensionsManager=await createExtensionsManager({directory:profileManager.directory(profileId),profileId,session:regularSession,safeStorage,dialog,window:()=>win,enabled:!networkPrivacy.enabled,onChange:publish});
+ vaultActions=createVaultActions({vault:currentVault,active,profileId:()=>profileManager.active.id,expectedProfile:profileId,clipboard,dialog,window:()=>win,onChange:publish});
+ browserAccount=await createNativeAccount({store:currentStore,vault:currentVault,session:regularSession,
+ readSnapshot:()=>({bookmarks:currentStore.state.bookmarks,history:currentStore.state.history,settings:{...currentStore.state.preferences.search,theme:currentStore.state.preferences.theme},tabs:epoch===profileEpoch?tabs.filter(tab=>!tab.private).map(tab=>({url:tab.url,title:tab.title,pinned:tab.pinned})):[]}),
+ applyRemote:data=>{if(epoch!==profileEpoch)throw Error('profile_changed');return applyCloudSnapshot(data);},onStatus:publish,openExternal:url=>shell.openExternal(url),showPanel:openPanel,notify:message,isPrivate:()=>epoch!==profileEpoch||switchingProfile||Boolean(active()?.private),proxyEnabled:()=>networkPrivacy.enabled,dialog,window:()=>win,
+ onAuthenticated:async auth=>{if(epoch!==profileEpoch)throw Error('profile_changed');let target=profileManager.findAccount(auth.identity.uid);if(!target&&!profileManager.active.identity){await profileManager.claim(profileId,auth.identity);return false;}if(target?.id===profileId){await profileManager.claim(profileId,auth.identity);return false;}if(!target)target=await profileManager.create(auth.identity.name||auth.identity.email);if(target.archived)await profileManager.archive(target.id,false);delete currentStore.state.syncPending;await currentStore.flush();await switchProfile(target.id,auth);openPanel('sync');return true;}
+ });
+}
+async function switchProfile(id,auth){
+ if(switchingProfile||id===profileManager.active.id)return;
+ rememberSession();switchingProfile=true;
+ try{
+  const dir=profileManager.directory(id);
+  const nextStore=await openEncryptedStore(dir,{safeStorage,context:profileManager.context(id)});
+  const nextVault=await openPrivateVault(dir,id,{safeStorage});
+  if(nextStore.storageProtection.status!=='encrypted'||nextVault.protection.status!=='encrypted')throw Error('تعذر فتح ملف التعريف المشفر.');
+  if(auth){
+   const {accountRequest}=await import('./browser-account-client.mjs');
+   await accountRequest('device',{token:auth.token,body:{deviceId:nextStore.state.deviceId},fetchImpl:regularSession.fetch.bind(regularSession)});
+   await profileManager.claim(id,auth.identity);
+   nextStore.state.sync={...auth,deviceId:nextStore.state.deviceId};await nextStore.flush();
+  }
+  const targetIdentity=profileManager.get(id).identity;
+  if(targetIdentity&&nextStore.state.sync?.identity?.uid&&targetIdentity.uid!==nextStore.state.sync.identity.uid)throw Error('profile_account_mismatch');
+  await store.flush();await privateVault.flush().catch(()=>{});await profileManager.activate(id);
+  browserAccount.stop();vaultActions.dispose();await extensionsManager?.dispose();profileEpoch++;omniboxRequest?.abort();
+  for(const tab of tabs){tab.iconRequest?.abort();destroyView(tab);}
+  tabs.length=0;closedTabs.length=0;tabIcons.clear();permissionGrants.clear();await cleanupPrivate();
+  store=nextStore;privateVault=nextVault;
+  regularSession=session.fromPartition(networkPrivacy.enabled?'sanad-network-'+crypto.randomUUID():profileManager.partition(id));
+  prepareSession(regularSession);protection.set(regularSession,store.state.preferences.protection);await sessionSetup.get(regularSession);
+  nativeTheme.themeSource=store.state.preferences.theme;activeId=null;await startProfileServices();restoreSession();
+ }finally{switchingProfile=false;publish();}
+ void browserAccount.start();
+}
 async function shutdown() {
   if (shuttingDown) return;
-  shuttingDown = true; browserAccount?.stop(); clearTimeout(publishTimer);
+  rememberSession();shuttingDown = true; browserAccount?.stop();vaultActions?.dispose();await extensionsManager?.dispose(); clearTimeout(publishTimer);
   for (const tab of tabs) destroyView(tab);
   tabs.length = 0;
-  try { await store?.flush(); } catch { /* Preserve the last committed snapshot. */ }
+  try { await store?.flush();await privateVault?.flush().catch(()=>{}); } catch { /* Preserve the last committed snapshot. */ }
   protection?.dispose(); app.quit();
 }
 async function createWindow() {
@@ -547,19 +606,23 @@ async function createWindow() {
   win.webContents.on('did-finish-load', publish);
   win.on('close', event => { if (!shuttingDown) { event.preventDefault(); void shutdown(); } });
   await win.loadURL('sanad-app://browser/index.html');
-  createTab(homeURL);
+  restoreSession();
 }
 app.whenReady().then(async () => {
   if(!primaryInstance)return;
   if(!process.windowsStore){if(process.defaultApp&&process.argv[1])app.setAsDefaultProtocolClient('sanad',process.execPath,[path.resolve(process.argv[1])]);else app.setAsDefaultProtocolClient('sanad');}
   if (privacyStartupError) { dialog.showErrorBox('تعذر فتح إعدادات حماية الاتصال', privacyStartupError.message); throw privacyStartupError; }
   if (networkPrivacy.enabled) app.configureHostResolver({ secureDnsMode: 'off', enableBuiltInResolver: false, enableAdditionalDnsQueryTypes: false });
-  store = await openEncryptedStore(app.getPath('userData'), { safeStorage, onError: () => message('تعذّر فتح البيانات المحمية أو حفظها. بقي الملف الأصلي محفوظًا؛ راجع حالة حماية البيانات في «حول Sanad».') });
+  profileManager=await openProfileManager(app.getPath('userData'),{safeStorage});
+  store = await openEncryptedStore(profileManager.directory(profileManager.active.id), { safeStorage,context:profileManager.context(profileManager.active.id), onError: () => message('تعذّر فتح البيانات المحمية أو حفظها. بقي الملف الأصلي محفوظًا؛ راجع حالة حماية البيانات في «حول Sanad».') });
+  privateVault=await openPrivateVault(profileManager.directory(profileManager.active.id),profileManager.active.id,{safeStorage});
+  if(store.state.sync?.identity&&!profileManager.active.identity&&profileManager.protection.status==='encrypted')await profileManager.claim(profileManager.active.id,store.state.sync.identity);
+  if(profileManager.active.identity&&store.state.sync?.identity?.uid&&profileManager.active.identity.uid!==store.state.sync.identity.uid)throw Error('profile_account_mismatch');
   const feedURL = testMode && safeURL(process.env.SANAD_BROWSER_TEST_UPDATE_URL, true) ? process.env.SANAD_BROWSER_TEST_UPDATE_URL : UPDATE_FEED;
   updates = storeDistribution ? createStoreUpdateChecker() : createUpdateChecker({ version: app.getVersion(), feedURL, changed: publish, fetchImpl: (url, options) => net.fetch(url, options) });
   nativeTheme.themeSource = store.state.preferences.theme;
   protection = createProtection(app.getPath('userData'), request => { const tab = tabs.find(item => item.view?.webContents.id === Number(request.tabId)); if (tab) { tab.blocked++; publish(); } });
-  regularSession = session.fromPartition(networkPrivacy.enabled ? `sanad-network-${crypto.randomUUID()}` : 'persist:sanad-web');
+  regularSession = session.fromPartition(networkPrivacy.enabled ? `sanad-network-${crypto.randomUUID()}` : profileManager.partition(profileManager.active.id));
   prepareSession(session.defaultSession); prepareSession(regularSession);
   await Promise.all([sessionSetup.get(session.defaultSession), sessionSetup.get(regularSession)]);
   protocol.handle('sanad-app', request => {
@@ -570,13 +633,14 @@ app.whenReady().then(async () => {
     return new Response(fs.readFileSync(path.join(__dirname, file[0])), { headers: { 'Content-Type': file[1], 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" } });
   });
   ipcMain.handle('sanad-browser:command', async (event, action, data = {}) => {
-    if (!trustedSender(event, win?.webContents) || typeof action !== 'string' || !data || typeof data !== 'object' || JSON.stringify(data).length > 10000) throw new Error('Request rejected');
+    if (switchingProfile || !trustedSender(event, win?.webContents) || typeof action !== 'string' || !data || typeof data !== 'object' || JSON.stringify(data).length > 10000) throw new Error('Request rejected');
     try { return await command(action, data); } catch (error) { message(error instanceof Error ? error.message : 'تعذر تنفيذ الإجراء.'); return snapshot(); }
   });
+  ipcMain.handle('sanad-browser:vault',async(event,action,data={})=>{if(!trustedSender(event,win?.webContents)||switchingProfile||!data||typeof data!=='object'||JSON.stringify(data).length>12000)throw Error('Request rejected');return vaultActions.run(action,data);});
+  ipcMain.handle('sanad-browser:form-submission',async(event,data)=>{if(!switchingProfile)await handleFormSubmission(event,data,{active,profileId:()=>profileManager.active.id,vault:()=>privateVault,dialog,window:()=>win,onChange:publish});});
   Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'سَنَد', submenu: [{ label: 'تبويب جديد', accelerator: 'CmdOrCtrl+T', click: () => { createTab(homeURL, Boolean(active()?.private)); focusAddress(); } }, { label: 'بحث دون حفظ السجل', accelerator: 'CmdOrCtrl+Shift+N', click: () => { createTab(homeURL, true); focusAddress(); } }, { label: 'استعادة التبويب', accelerator: 'CmdOrCtrl+Shift+T', click: restoreTab }, { type: 'separator' }, { role: 'quit' }] }]));
   await createWindow();
-  browserAccount=await createNativeAccount({store,session:regularSession,readSnapshot:()=>({bookmarks:store.state.bookmarks,history:store.state.history,settings:{...store.state.preferences.search,theme:store.state.preferences.theme},tabs:tabs.filter(tab=>!tab.private).map(tab=>({url:tab.url,title:tab.title,pinned:tab.pinned}))}),
-    applyRemote:applyCloudSnapshot,onStatus:publish,openExternal:url=>shell.openExternal(url),showPanel:openPanel,notify:message,isPrivate:()=>Boolean(active()?.private),proxyEnabled:()=>networkPrivacy.enabled,dialog,window:()=>win});
+  await startProfileServices();
   browserAccount.start();for(const url of pendingAuthURLs.splice(0))void browserAccount.handleURL(url);publish();
 }).catch(error => { console.error(error.message); app.quit(); });
 app.on('window-all-closed', () => app.quit());

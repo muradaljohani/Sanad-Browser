@@ -16,7 +16,9 @@ function normalizeState(saved = {}) {
   try { bookmarks = sanitizeBookmarks(saved.bookmarks ?? []); } catch {}
   const history = Array.isArray(saved.history) ? saved.history.slice(0, 200).filter(entry => entry && safeURL(entry.url) && mayRemember(entry.url)).map(entry => ({ url: entry.url, title: String(entry.title ?? '').slice(0, 200), timestamp: Number(entry.timestamp) || 0 })) : [];
   const sync=normalizedSyncState(saved.sync),syncPending=normalizedPendingLogin(saved.syncPending);
-  return { preferences, bookmarks, history, ...(sync?{sync}:{}), ...(syncPending?{syncPending}:{}) };
+  const deviceId=typeof saved.deviceId==='string'&&/^[A-Za-z0-9_-]{16,80}$/.test(saved.deviceId)?saved.deviceId:sync?.deviceId||randomUUID();
+  const session=(Array.isArray(saved.session)?saved.session:[]).slice(0,32).filter(x=>x&&safeURL(x.url)&&mayRemember(x.url)).map(x=>({url:x.url,title:String(x.title||'').slice(0,200),pinned:x.pinned===true,active:x.active===true}));
+  return { deviceId, session, preferences, bookmarks, history, ...(sync?{sync}:{}), ...(syncPending?{syncPending}:{}) };
 }
 function openStore(directory) {
   const filename = path.join(directory, 'browser-state-v1.json');
@@ -35,7 +37,7 @@ function openStore(directory) {
   return { state, persist, flush, storageProtection: { status: 'unavailable', readOnly: false } };
 }
 
-async function openEncryptedStore(directory, { safeStorage, platform = process.platform, onError = () => {} } = {}) {
+async function openEncryptedStore(directory, { safeStorage, platform = process.platform, context, onError = () => {} } = {}) {
   const filename = path.join(directory, 'browser-state-v2.enc');
   const legacy = path.join(directory, 'browser-state-v1.json');
   const locked = (state = normalizeState()) => {
@@ -45,7 +47,7 @@ async function openEncryptedStore(directory, { safeStorage, platform = process.p
   let encoded;
   try { encoded = readBoundedText(filename, 2_800_000); }
   catch (error) { if (error.code !== 'ENOENT') return locked(); }
-  const cipher = await createStateCipher(safeStorage, platform);
+  const cipher = await createStateCipher(safeStorage, platform, {context});
   // Existing encrypted profiles must never fall back to an older plaintext
   // copy or overwrite ciphertext when the OS key is unavailable.
   if (!cipher) return encoded === undefined ? openStore(directory) : locked();

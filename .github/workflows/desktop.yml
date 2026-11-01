@@ -128,6 +128,9 @@ jobs:
       - name: Verify Google handoff, scoped account sync and Chrome import on Windows
         if: runner.os == 'Windows'
         run: node tests/browser-account-desktop.test.cjs
+      - name: Verify isolated profiles and explicit credential filling on Windows
+        if: runner.os == 'Windows'
+        run: node tests/profile-vault-desktop.test.cjs
       - name: Install and verify the actual Windows Setup
         if: runner.os == 'Windows'
         shell: pwsh

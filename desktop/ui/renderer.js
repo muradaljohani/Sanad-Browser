@@ -46,7 +46,7 @@ const omnibox = window.SanadOmnibox({ input: $('address'), form: $('address-form
 }, hideOverlay: () => { if (!panelName) { panelRequest++; clearPreview(); void command('overlay', { value: false }); } } });
 async function go(url, newTab = false) { closePanel(); if (newTab) await command('new'); await command('navigate', { value: url }); }
 function clearPreview() { $('page-preview').hidden = true; $('page-preview').removeAttribute('src'); }
-function disposeSettings() { settingsController?.unmount(); settingsController = null; lastSettingsKey = ''; }
+function disposeSettings() { accountController?.dispose?.();accountController=null; settingsController?.unmount(); settingsController = null; lastSettingsKey = ''; }
 function closePanel() { const wasReader = panelName === 'reader'; omnibox.close(); disposeSettings(); panelName = ''; panelRequest++; clearPreview(); $('panel').close(); $('menu-button').setAttribute('aria-expanded', 'false'); void command('overlay', { value: false }); if (wasReader) void command('reader-clear'); }
 function openPanel(name) {
   if (name === 'find') {
@@ -56,7 +56,7 @@ function openPanel(name) {
   omnibox.close();
   disposeSettings();
   if (name === 'privacy') { networkPortDraft = String(state?.locationPrivacy?.port || 9050); lastPrivacyKey = ''; }
-  panelName = name; const request = ++panelRequest; lastReaderText = lastReaderTitle = undefined; $('panel').classList.toggle('reader-panel', name === 'reader'); $('panel').classList.toggle('settings-panel', name === 'settings'); $('panel').classList.toggle('browser-menu', name === 'menu'); $('menu-button').setAttribute('aria-expanded', String(name === 'menu')); $('panel-title').textContent = titles[name]; $('panel-content').replaceChildren();
+  panelName = name; const request = ++panelRequest; lastReaderText = lastReaderTitle = undefined; $('panel').classList.toggle('profile-panel',name==='sync'); $('panel').classList.toggle('reader-panel', name === 'reader'); $('panel').classList.toggle('settings-panel', name === 'settings'); $('panel').classList.toggle('browser-menu', name === 'menu'); $('menu-button').setAttribute('aria-expanded', String(name === 'menu')); $('panel-title').textContent = titles[name]; $('panel-content').replaceChildren();
   filterInput = null;
   if (['tabs', 'bookmarks', 'history'].includes(name)) {
     filterInput = element('input', 'filter'); filterInput.type = 'search'; filterInput.placeholder = `ابحث في ${titles[name]}`;
@@ -64,7 +64,7 @@ function openPanel(name) {
     $('panel-content').append(filterInput);
   }
   panelBody = element('div'); $('panel-content').append(panelBody);
-  if (name === 'sync') accountController = window.SanadAccountPanel({root:panelBody,command,element,button});
+  if (name === 'sync') accountController = window.SanadAccountPanel({root:panelBody,command,element,button,vaultAPI:api.vault});
   if (name === 'menu') menuController = window.SanadBrowserMenu({ root: panelBody, command, openPanel, closePanel, element, button, setIcon });
   renderPanel();
   void command('overlay', { value: true }).then(next => {
