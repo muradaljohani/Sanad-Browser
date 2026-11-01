@@ -1,10 +1,11 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, session, protocol, dialog, shell, clipboard, Menu, nativeTheme, safeStorage } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, protocol, dialog, shell, clipboard, Menu, nativeTheme, safeStorage, net } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { readBoundedText } = require('./bounded-file.cjs');
 const { brandedUserAgent } = require('./user-agent.cjs');
+const { readNetworkPrivacy, writeNetworkPrivacy, configureStartupPrivacy, configureSessionPrivacy, hardenWebContents, locationPermissionAllowed, validateConfig } = require('./location-privacy.cjs');
 const { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender } = require('./policy.cjs');
 const { openEncryptedStore } = require('./store.cjs');
 const { createProtection } = require('./protection.cjs');
@@ -22,6 +23,12 @@ const testMode = !app.isPackaged && process.env.SANAD_BROWSER_TEST_MODE === '1';
 const homeURL = testMode && safeURL(process.env.SANAD_BROWSER_TEST_URL, true) ? process.env.SANAD_BROWSER_TEST_URL : HOME;
 if (testMode && process.env.SANAD_BROWSER_TEST_PROFILE) app.setPath('userData', process.env.SANAD_BROWSER_TEST_PROFILE);
 app.setName('Sanad Browser');
+// Read the non-secret routing preference before Chromium creates a network service.
+let networkPrivacy, privacyStartupError;
+try { networkPrivacy = readNetworkPrivacy(app.getPath('userData')); }
+catch (error) { privacyStartupError = error; networkPrivacy = { version: 1, enabled: true, port: 1024 }; }
+configureStartupPrivacy(app.commandLine, networkPrivacy);
+app.on('web-contents-created', (_event, wc) => hardenWebContents(wc));
 // Set the global default before creating any sessions, windows or popups.
 app.userAgentFallback = brandedUserAgent(app.userAgentFallback, app.getVersion());
 protocol.registerSchemesAsPrivileged([{ scheme: 'sanad-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }, { scheme: 'sanad-licenses', privileges: { standard: true, secure: true } }]);
@@ -32,6 +39,7 @@ let updatingProtection = false, shuttingDown = false;
 let publishTimer;
 const tabs = [], closedTabs = [], downloads = new Map(), permissionGrants = new Map();
 const preparedSessions = new Set();
+const sessionSetup = new WeakMap();
 const localFiles = new Map([
   ['/index.html', ['ui/index.html', 'text/html; charset=utf-8']],
   ['/renderer.js', ['ui/renderer.js', 'text/javascript; charset=utf-8']],
@@ -50,7 +58,8 @@ function snapshot() {
     downloads: [...downloads.values()].map(publicDownload), closedCount: closedTabs.length,
     notice, reader: active()?.reader || null, protectionSource: protection.source(), protectionRevision: protection.revision(), updatingProtection,
     versions: { chromium: process.versions.chrome, electron: process.versions.electron, app: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, distribution: storeDistribution ? 'microsoft-store' : 'direct' },
-    updates: updates?.snapshot(), storageProtection: store.storageProtection, licenceNotices
+    updates: updates?.snapshot(), storageProtection: store.storageProtection, licenceNotices,
+    locationPrivacy: { enabled: networkPrivacy.enabled, port: networkPrivacy.port, routing: networkPrivacy.enabled ? 'configured-unverified' : 'system', geolocation: 'blocked' }
   };
 }
 function publish() {
@@ -71,6 +80,9 @@ function openPanel(name) { overlay = name !== 'find'; layout(); win?.webContents
 function prepareSession(ses) {
   if (preparedSessions.has(ses)) return;
   preparedSessions.add(ses);
+  const ready = configureSessionPrivacy(ses, networkPrivacy);
+  sessionSetup.set(ses, ready);
+  void ready.catch(() => app.exit(1));
   ses.protocol.handle('sanad-licenses', request => {
     if (new URL(request.url).hostname !== 'app' || new URL(request.url).pathname !== '/chromium') return new Response('Not found', { status: 404 });
     const filename = path.join(path.dirname(app.getPath('exe')), 'LICENSES.chromium.html');
@@ -80,8 +92,9 @@ function prepareSession(ses) {
   // Identify our own desktop surface after normal site navigation, including return links.
   ses.setUserAgent(brandedUserAgent(ses.getUserAgent(), app.getVersion()));
   protection.set(ses, store.state.preferences.protection);
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => permissionGrants.get(`${ses === privateSession ? 'private' : 'regular'}:${requestingOrigin}:${permission}`) === true);
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => locationPermissionAllowed(permission, permissionGrants.get(`${ses === privateSession ? 'private' : 'regular'}:${requestingOrigin}:${permission}`)));
   ses.setPermissionRequestHandler(async (wc, permission, callback, details) => {
+    if (permission === 'geolocation') return callback(false);
     const tab = tabs.find(item => item.view?.webContents === wc);
     const url = safeURL(details.requestingUrl || wc.getURL(), testMode);
     const supported = new Set(['media', 'geolocation', 'notifications']);
@@ -126,7 +139,7 @@ function sessionFor(isPrivate) {
   return privateSession;
 }
 function remember(tab) {
-  if (tab.private || !mayRemember(tab.url, testMode)) return;
+  if (networkPrivacy.enabled || tab.private || !mayRemember(tab.url, testMode)) return;
   store.state.history = [{ url: tab.url, title: tab.title, timestamp: Date.now() }, ...store.state.history.filter(item => item.url !== tab.url)].slice(0, 200);
   store.persist();
 }
@@ -196,9 +209,9 @@ function attachView(tab, inheritedContents) {
   wc.once('destroyed', () => { if (tab.view === view) finishClose(tab.id); });
   wc.on('did-navigate', (_event, url) => { if (url === 'about:blank' && !inheritedContents && tab.url !== 'about:blank') return; tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
   wc.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { const normalized = nativeSiteURL(url, tab.private, testMode); if (normalized && normalized !== url) { void loadTabURL(tab, normalized); return; } tab.url = url; remember(tab); void applyPageProtection(tab, wc); publish(); } });
-  wc.on('page-title-updated', (_event, title) => { tab.title = String(title).slice(0, 200); if (!tab.private) { const item = store.state.history.find(item => item.url === tab.url); if (item) { item.title = tab.title; store.persist(); } } publish(); });
+  wc.on('page-title-updated', (_event, title) => { tab.title = String(title).slice(0, 200); if (!networkPrivacy.enabled && !tab.private) { const item = store.state.history.find(item => item.url === tab.url); if (item) { item.title = tab.title; store.persist(); } } publish(); });
   for (const event of ['did-start-loading', 'did-stop-loading', 'media-started-playing', 'media-paused']) wc.on(event, publish);
-  wc.on('did-fail-load', (_event, code, _description, url, isMainFrame) => { if (isMainFrame && code !== -3) { tab.error = 'تعذر فتح الصفحة. تحقق من الاتصال أو جرّب إعادة التحميل.'; tab.url = safeURL(url, testMode) || tab.url; publish(); } });
+  wc.on('did-fail-load', (_event, code, _description, url, isMainFrame) => { if (isMainFrame && code !== -3) { tab.error = networkPrivacy.enabled ? 'تعذر فتح الصفحة عبر الوسيط المحلي. تحقق من تشغيله؛ لا يتحول المتصفح تلقائيًا إلى اتصال مباشر.' : 'تعذر فتح الصفحة. تحقق من الاتصال أو جرّب إعادة التحميل.'; tab.url = safeURL(url, testMode) || tab.url; publish(); } });
   wc.on('render-process-gone', () => { tab.error = 'توقفت الصفحة. أعد تحميلها للمتابعة.'; publish(); });
   wc.on('found-in-page', (_event, result) => { if (tab.id === activeId) win.webContents.send('sanad-browser:state', { ...snapshot(), found: { total: result.matches, current: result.activeMatchOrdinal } }); });
   layout();
@@ -206,6 +219,7 @@ function attachView(tab, inheritedContents) {
 async function loadTabURL(tab, url, options) {
   const wc = tab?.view?.webContents;
   if (!wc || wc.isDestroyed()) return;
+  await sessionSetup.get(wc.session);
   await tab.youtube?.ready;
   if (!wc.isDestroyed() && tab.view?.webContents === wc) await wc.loadURL(url, options).catch(() => {});
 }
@@ -309,6 +323,13 @@ async function command(action, data) {
     case 'history-clear': store.state.history = []; store.persist(); break;
     case 'theme': store.state.preferences.theme = store.state.preferences.theme === 'dark' ? 'light' : 'dark'; nativeTheme.themeSource = store.state.preferences.theme; store.persist(); break;
     case 'protection': store.state.preferences.protection = data.value === true; for (const ses of preparedSessions) protection.set(ses, store.state.preferences.protection); for (const target of tabs) if (target.view) void applyPageProtection(target, target.view.webContents); store.persist(); break;
+    case 'network-privacy': {
+      const config = validateConfig({ version: 1, enabled: data.enabled, port: data.port });
+      const result = await dialog.showMessageBox(win, { type: 'question', title: 'إعادة تشغيل سَنَد الحرمين', message: config.enabled ? `سيُستخدم وسيط SOCKS5 محلي على المنفذ ${config.port}. شغّله أولًا. سيتوقف التصفح إذا لم يكن متاحًا. ستُغلق التبويبات والتنزيلات عند إعادة التشغيل.` : 'سيُعاد تشغيل المتصفح دون إلزام الاتصال بالوسيط المحلي. قد يظهر عنوان IP الحقيقي للمواقع. ستُغلق التبويبات والتنزيلات.', buttons: ['إلغاء', 'حفظ وإعادة التشغيل'], defaultId: 0, cancelId: 0, noLink: true });
+      if (result.response !== 1) break;
+      writeNetworkPrivacy(app.getPath('userData'), config);
+      app.relaunch(); await shutdown(); break;
+    }
     case 'protection-update': if (!updatingProtection) { updatingProtection = true; publish(); try { await protection.update(); for (const target of tabs) if (target.view) void applyPageProtection(target, target.view.webContents); message('تم تحديث قوائم الحماية.'); } catch { message('تعذر تحديث القوائم. الحماية المحلية مستمرة.'); } finally { updatingProtection = false; } } break;
     case 'download-pause': downloads.get(data.id)?.item.pause(); break;
     case 'download-resume': { const item = downloads.get(data.id)?.item; if (item?.canResume()) item.resume(); break; }
@@ -365,7 +386,7 @@ async function command(action, data) {
     case 'copy-link': { const url = cleanURL(tab?.url); if (url) { clipboard.writeText(url); message('نُسخ الرابط دون معاملات التتبع.'); } break; }
     case 'account': createTab('https://ip-murad.com/profile/studio'); break;
     case 'updates-check': if (!data.automatic || (app.isPackaged && !tab?.private)) await updates.check({ automatic: data.automatic === true }); break;
-    case 'updates-open': { if (storeDistribution) { await shell.openExternal(STORE_UPDATES_URI); break; } const release = updates.snapshot(); if (release.releaseUrl && ['available', 'current', 'ahead'].includes(release.status)) createTab(release.releaseUrl, tab?.private); break; }
+    case 'updates-open': { if (storeDistribution) { if (networkPrivacy.enabled) { message('Microsoft Store تطبيق خارجي لا يشمله مسار الوسيط. أوقف وضع الوسيط قبل فتح تحديثات المتجر من هنا.'); break; } await shell.openExternal(STORE_UPDATES_URI); break; } const release = updates.snapshot(); if (release.releaseUrl && ['available', 'current', 'ahead'].includes(release.status)) createTab(release.releaseUrl, tab?.private); break; }
     case 'about-copy': clipboard.writeText(`Sanad Browser ${app.getVersion()} (${process.platform} ${process.arch})\nChromium ${process.versions.chrome}\nElectron ${process.versions.electron}\n${storeDistribution ? 'Microsoft Store · Store-managed updates' : 'Preview channel · manual installation'}`); message('نُسخت معلومات الإصدار.'); break;
     case 'chromium-licenses': { const next = createTab(homeURL, Boolean(tab?.private), false); if (next) { activate(next.id); void loadTabURL(next, 'sanad-licenses://app/chromium'); } break; }
     default: throw new Error('إجراء غير معروف.');
@@ -392,12 +413,16 @@ async function createWindow() {
   createTab(homeURL);
 }
 app.whenReady().then(async () => {
+  if (privacyStartupError) { dialog.showErrorBox('تعذر فتح إعدادات حماية الاتصال', privacyStartupError.message); throw privacyStartupError; }
+  if (networkPrivacy.enabled) app.configureHostResolver({ secureDnsMode: 'off', enableBuiltInResolver: false, enableAdditionalDnsQueryTypes: false });
   store = await openEncryptedStore(app.getPath('userData'), { safeStorage, onError: () => message('تعذّر فتح البيانات المحمية أو حفظها. بقي الملف الأصلي محفوظًا؛ راجع حالة حماية البيانات في «حول Sanad».') });
   const feedURL = testMode && safeURL(process.env.SANAD_BROWSER_TEST_UPDATE_URL, true) ? process.env.SANAD_BROWSER_TEST_UPDATE_URL : UPDATE_FEED;
-  updates = storeDistribution ? createStoreUpdateChecker() : createUpdateChecker({ version: app.getVersion(), feedURL, changed: publish });
+  updates = storeDistribution ? createStoreUpdateChecker() : createUpdateChecker({ version: app.getVersion(), feedURL, changed: publish, fetchImpl: (url, options) => net.fetch(url, options) });
   nativeTheme.themeSource = store.state.preferences.theme;
   protection = createProtection(app.getPath('userData'), request => { const tab = tabs.find(item => item.view?.webContents.id === Number(request.tabId)); if (tab) { tab.blocked++; publish(); } });
-  regularSession = session.fromPartition('persist:sanad-web'); prepareSession(regularSession);
+  regularSession = session.fromPartition(networkPrivacy.enabled ? `sanad-network-${crypto.randomUUID()}` : 'persist:sanad-web');
+  prepareSession(session.defaultSession); prepareSession(regularSession);
+  await Promise.all([sessionSetup.get(session.defaultSession), sessionSetup.get(regularSession)]);
   protocol.handle('sanad-app', request => {
     const url = new URL(request.url);
     const file = url.hostname === 'browser' && localFiles.get(url.pathname);
@@ -413,4 +438,5 @@ app.whenReady().then(async () => {
 }).catch(error => { console.error(error.message); app.quit(); });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => { if (!shuttingDown && store) { event.preventDefault(); void shutdown(); } });
+
 

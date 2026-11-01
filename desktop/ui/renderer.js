@@ -1,7 +1,7 @@
 'use strict';
 const api = window.sanadBrowser;
 const $ = id => document.getElementById(id);
-let state, panelName = '', panelBody, filterInput, lastActiveId, lastTabsKey = '', lastReaderText, lastReaderTitle, lastMenuKey = '';
+let state, panelName = '', panelBody, filterInput, lastActiveId, lastTabsKey = '', lastReaderText, lastReaderTitle, lastMenuKey = '', networkPortDraft;
 const titles = { menu: 'أدوات المتصفح', tabs: 'التبويبات', bookmarks: 'المفضلة', history: 'السجل على هذا الجهاز', downloads: 'التنزيلات', privacy: 'حماية الخصوصية', reader: 'وضع القراءة', performance: 'أداء الصفحة', about: 'حول Sanad', licenses: 'التراخيص والمصادر المفتوحة' };
 const normalize = value => String(value).normalize('NFKC').replace(/[\u064b-\u065f\u0670\u0640]/g, '').toLowerCase();
 const iconPaths = {
@@ -35,6 +35,7 @@ function openPanel(name) {
     closePanel(); $('find-bar').hidden = false; $('find-input').focus(); $('find-input').select(); return;
   }
   if (!titles[name]) return;
+  if (name === 'privacy') networkPortDraft = String(state.locationPrivacy?.port || 9050);
   panelName = name; lastReaderText = lastReaderTitle = undefined; lastMenuKey = ''; $('panel').classList.toggle('reader-panel', name === 'reader'); $('panel-title').textContent = titles[name]; $('panel-content').replaceChildren();
   filterInput = null;
   if (['tabs', 'bookmarks', 'history'].includes(name)) {
@@ -59,6 +60,7 @@ function renderPanel() {
     lastMenuKey = key;
   }
   if (panelName === 'reader' && state.reader?.text === lastReaderText && state.reader?.title === lastReaderTitle && panelBody.childElementCount > 0) return;
+  if (panelName === 'privacy' && document.activeElement?.id === 'network-proxy-port') return;
   const fragment = document.createDocumentFragment();
   const append = node => fragment.append(node);
   if (panelName === 'menu') {
@@ -122,12 +124,28 @@ function renderPanel() {
     if (!state.downloads.length) append(hint('لا توجد تنزيلات في هذه الجلسة.'));
     append(hint('تبقى الملفات التي تنزّلها في جهازك بعد إغلاق التبويب الخاص.'));
   } else if (panelName === 'privacy') {
+    const routing = state.locationPrivacy;
+    append(element('h2', '', 'حماية الموقع والاتصال'));
+    append(hint('مشاركة إحداثيات موقعك محظورة في جميع التبويبات. تُقيّد اتصالات WebRTC لتقليل تسرّب عنوان الشبكة.'));
+    const routeStatus = hint(routing?.enabled ? `وسيط محلي مضبوط: 127.0.0.1:${routing.port}. لم يُتحقق من عنوان الخروج أو هوية الوسيط.` : 'لا يوفر سَنَد إخفاء عنوان IP في الوضع العادي؛ قد تستنتج المواقع منه موقعًا تقريبيًا.');
+    routeStatus.setAttribute('role', 'status'); append(routeStatus);
+    append(hint('وضع الوسيط يحتاج إلى خدمة SOCKS5 موثوقة تعمل على جهازك، ولا يتضمن VPN أو Tor مدمجًا. SOCKS5 وحده لا يضمن التشفير أو إخفاء IP؛ تعتمد الحماية على الخدمة التي تشغّلها.'));
+    const portLabel = element('label', '', 'منفذ وسيط SOCKS5 المحلي'); portLabel.htmlFor = 'network-proxy-port'; append(portLabel);
+    const port = element('input', 'filter'); port.id = 'network-proxy-port'; port.type = 'text'; port.inputMode = 'numeric'; port.maxLength = 5; port.value = networkPortDraft || String(routing?.port || 9050); port.setAttribute('aria-label', 'منفذ وسيط SOCKS5 المحلي');
+    port.addEventListener('input', () => { networkPortDraft = port.value; }); append(port);
+    append(button(routing?.enabled ? 'تطبيق منفذ الوسيط وإعادة التشغيل' : 'استخدام الوسيط وإعادة التشغيل', () => {
+      const value = networkPortDraft || '';
+      if (!/^\d{4,5}$/.test(value) || Number(value) < 1024 || Number(value) > 65535) { $('notice').hidden = false; $('notice').textContent = 'اكتب منفذًا بين 1024 و65535.'; return; }
+      void command('network-privacy', { enabled: true, port: Number(value) });
+    }));
+    if (routing?.enabled) append(button('إيقاف وضع الوسيط وإعادة التشغيل', () => void command('network-privacy', { enabled: false, port: routing.port })));
+    append(hint('في وضع الوسيط لا تستخدم طلبات الويب مسارًا مباشرًا بديلاً، وتبدأ جلسة دون ملفات دخول سابقة أو حفظ سجل الزيارات. لا يضمن هذا إخفاء الهوية؛ تسجيل الدخول يكشف حسابك للموقع، والحماية لا تشمل التطبيقات الأخرى أو الملفات بعد فتحها.'));
     const label = element('label', 'toggle'); const checkbox = element('input'); checkbox.type = 'checkbox'; checkbox.checked = state.preferences.protection; checkbox.addEventListener('change', () => void command('protection', { value: checkbox.checked })); label.append(checkbox, element('span', '', 'حجب متتبعات وإعلانات من القوائم')); append(label);
     append(hint(state.protectionSource === 'standard' ? 'القوائم المحدثة محفوظة محليًا وتعمل دون إعادة تنزيلها مع كل زيارة.' : state.protectionSource === 'bundled' ? 'قوائم حظر كاملة مرفقة مع التطبيق وتعمل من أول تشغيل، حتى دون تحديث.' : 'تعذر تحميل القوائم الكاملة. قواعد الحماية الأساسية مستمرة؛ جرّب تحديث القوائم.'));
     append(hint('تشمل الحماية إخفاء المساحات الإعلانية ومحاولة تخطي إعلانات مشغّل يوتيوب عند تمييزها. لا يمكن ضمان حجب كل إعلان دائمًا؛ قد يغيّر الموقع طريقة عرضه.'));
     const update = button(state.updatingProtection ? 'جارٍ تحديث القوائم…' : 'تحديث قوائم الحماية', () => void command('protection-update')); update.disabled = state.updatingProtection; append(update);
     append(hint(`حُجبت ${state.tabs.find(tab => tab.id === state.activeId)?.blocked || 0} طلبات في هذا التبويب منذ فتحه.`));
-    append(hint('إذا توقف موقع عن العمل، يمكنك تعطيل الحجب ثم إعادة تحميله. التبويب الخاص يستخدم جلسة منفصلة تُمسح عند إغلاق آخر تبويب خاص؛ لا يُخفي اتصالك عن الموقع أو مزود الشبكة.'));
+    append(hint('إذا توقف موقع عن العمل، يمكنك تعطيل الحجب ثم إعادة تحميله. التبويب الخاص يستخدم جلسة منفصلة تُمسح عند إغلاق آخر تبويب خاص؛ وحده لا يُخفي اتصالك عن الموقع أو مزود الشبكة.'));
   } else if (panelName === 'reader') {
     const reader = state.reader;
     lastReaderText = reader?.text; lastReaderTitle = reader?.title;
@@ -190,6 +208,8 @@ function render(next) {
   $('back').disabled = !tab.back; $('forward').disabled = !tab.forward; setIcon($('reload'), tab.loading ? 'close' : 'reload'); $('reload').setAttribute('aria-label', tab.loading ? 'إيقاف التحميل' : 'إعادة تحميل');
   const marked = state.bookmarks.some(item => item.url === tab.url); setIcon($('bookmark'), 'star', marked); $('bookmark').setAttribute('aria-pressed', String(marked));
   $('protection').setAttribute('aria-pressed', String(state.preferences.protection)); $('blocked-count').textContent = tab.blocked > 0 ? String(tab.blocked) : '';
+  $('network-status').hidden = !state.locationPrivacy?.enabled;
+  $('network-status').textContent = state.locationPrivacy?.enabled ? 'وسيط محلي مضبوط · لم يُتحقّق من عنوان الخروج' : '';
   const localDocument = tab.url.startsWith('sanad-licenses://');
   if (tab.private) $('connection').textContent = 'خاص'; else if (localDocument) $('connection').textContent = 'محلي'; else setIcon($('connection'), 'lock'); $('connection').setAttribute('aria-label', tab.private ? 'تبويب خاص' : localDocument ? 'مستند محلي' : 'اتصال مشفر');
   $('notice').textContent = state.notice; $('notice').hidden = !state.notice; $('page-error').textContent = tab.error; $('page-error').hidden = !tab.error;
@@ -225,3 +245,4 @@ let lastHeight = 0, resizeFrame = 0;
 new ResizeObserver(entries => { const height = Math.ceil(entries[0].borderBoxSize?.[0]?.blockSize || $('chrome').getBoundingClientRect().height); if (height === lastHeight) return; lastHeight = height; cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(() => void command('toolbar-height', { value: height })); }).observe($('chrome'));
 api.onState(render); api.onFocusAddress(() => { closePanel(); $('address').focus(); $('address').select(); }); api.onOpenPanel(openPanel);
 void command('state');
+
