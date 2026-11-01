@@ -53,7 +53,7 @@ async function main() {
     assert.equal(await app.evaluate(({ webContents }, base) => webContents.getAllWebContents().find(wc => wc.getURL() === base + '/').executeJavaScript('window.pageMarker'), base), 99);
     await control('البحث الصارم مفعّل ومقفل؛ عرض الإجراء المطبّق').click(); await heading('إجراء البحث الصارم'); await dismiss();
     for (const [key, shift, title] of [['H', false, 'السجل على هذا الجهاز'], ['J', false, 'التنزيلات'], ['O', true, 'المفضلة']]) { await shortcut(key, shift); await heading(title); await dismiss(); }
-    for (const [label, title] of [['السجل', 'السجل على هذا الجهاز'], ['التنزيلات', 'التنزيلات'], ['المفضلة', 'المفضلة'], ['البحث في التبويبات', 'التبويبات'], ['حماية الخصوصية', 'حماية الخصوصية'], ['حول Sanad', 'حول Sanad']]) { await menu(); await control(label).click(); await heading(title); await dismiss(); }
+    for (const [label, title] of [['السجل', 'السجل على هذا الجهاز'], ['التنزيلات', 'التنزيلات'], ['المفضلة', 'المفضلة'], ['البحث في التبويبات', 'التبويبات'], ['حماية الخصوصية', 'حماية الخصوصية'], ['حول Sanad', 'حول Sanad']]) { await menu(); await shell.locator('#panel').getByRole('button', { name: label, exact: true }).click(); await heading(title); await dismiss(); }
     await menu(); await control('علامة تبويب جديدة').click(); state = await poll(s => s.tabs.length === 2 && s.activeId !== original, 'new tab from menu');
     const ordinary = state.activeId; await shell.waitForFunction(() => document.activeElement?.id === 'address');
     await cmd('close', { id: ordinary }); await poll(s => s.tabs.length === 1 && s.activeId === original, 'close ordinary');
