@@ -37,7 +37,7 @@ app.userAgentFallback = brandedUserAgent(app.userAgentFallback, app.getVersion()
 protocol.registerSchemesAsPrivileged([{ scheme: 'sanad-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }, { scheme: 'sanad-licenses', privileges: { standard: true, secure: true } }]);
 let win, store, protection, regularSession, privateSession, updates;
 const licenceNotices = fs.readFileSync(path.join(__dirname, 'LICENSE'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'THIRD_PARTY_NOTICES.md'), 'utf8');
-let activeId, toolbarHeight = 100, overlay = false, notice = '';
+let activeId, toolbarHeight = 100, overlay = false, overlayGeneration = 0, notice = '';
 let updatingProtection = false, shuttingDown = false;
 let publishTimer;
 const tabs = [], closedTabs = [], downloads = new Map(), permissionGrants = new Map();
@@ -47,6 +47,7 @@ const localFiles = new Map([
   ['/index.html', ['ui/index.html', 'text/html; charset=utf-8']],
   ['/renderer.js', ['ui/renderer.js', 'text/javascript; charset=utf-8']],
   ['/tab-strip.js', ['ui/tab-strip.js', 'text/javascript; charset=utf-8']],
+  ['/browser-menu.js', ['ui/browser-menu.js', 'text/javascript; charset=utf-8']],
   ['/browser.css', ['ui/browser.css', 'text/css; charset=utf-8']],
   ['/mark.png', ['assets/mark.png', 'image/png']],
   ['/wordmark.svg', ['assets/wordmark.svg', 'image/svg+xml']]
@@ -63,7 +64,8 @@ function snapshot() {
     notice, reader: active()?.reader || null, protectionSource: protection.source(), protectionRevision: protection.revision(), updatingProtection,
     versions: { chromium: process.versions.chrome, electron: process.versions.electron, app: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, distribution: storeDistribution ? 'microsoft-store' : 'direct' },
     updates: updates?.snapshot(), storageProtection: store.storageProtection, licenceNotices,
-    locationPrivacy: { enabled: networkPrivacy.enabled, port: networkPrivacy.port, routing: networkPrivacy.enabled ? 'configured-unverified' : 'system', geolocation: 'blocked' }
+    locationPrivacy: { enabled: networkPrivacy.enabled, port: networkPrivacy.port, routing: networkPrivacy.enabled ? 'configured-unverified' : 'system', geolocation: 'blocked' },
+    searchPolicy: { level: 'strict', locked: true }
   };
 }
 function publish() {
@@ -80,7 +82,27 @@ function layout() {
   }
 }
 function focusAddress() { win?.webContents.focus(); win?.webContents.send('sanad-browser:focus-address'); }
-function openPanel(name) { overlay = name !== 'find'; layout(); win?.webContents.focus(); win?.webContents.send('sanad-browser:open-panel', name); }
+function openPanel(name) { win?.webContents.focus(); win?.webContents.send('sanad-browser:open-panel', name); }
+function dismissOverlay() { overlayGeneration++; overlay = false; }
+async function showOverlay() {
+  const generation = ++overlayGeneration, tab = active(), wc = tab?.view?.webContents, url = wc?.getURL();
+  let preview, timer;
+  // A bounded, memory-only raster keeps the page visible behind shell panels.
+  // No page HTML enters the privileged renderer and no preview is persisted.
+  if (!overlay && wc && !wc.isDestroyed()) {
+    try {
+      const image = await Promise.race([wc.capturePage(), new Promise(resolve => { timer = setTimeout(() => resolve(null), 1000); })]).finally(() => clearTimeout(timer));
+      if (image && !image.isEmpty()) {
+        const bounded = image.resize({ width: Math.min(1600, image.getSize().width) });
+        const jpeg = bounded.toJPEG(75);
+        if (jpeg.length <= 1500000) preview = `data:image/jpeg;base64,${jpeg.toString('base64')}`;
+      }
+    } catch { /* Panels remain usable if the compositor cannot provide a frame. */ }
+  }
+  if (generation !== overlayGeneration || tab?.id !== activeId || wc?.isDestroyed() || wc?.getURL() !== url) return snapshot();
+  overlay = true; layout();
+  return { ...snapshot(), ...(preview ? { pagePreview: preview } : {}) };
+}
 function prepareSession(ses) {
   if (preparedSessions.has(ses)) return;
   preparedSessions.add(ses);
@@ -154,6 +176,11 @@ function handleKeyboard(event, input) {
   if (command && ['l', 'k'].includes(key) && !input.shift) { event.preventDefault(); focusAddress(); }
   else if (command && key === 't') { event.preventDefault(); if (input.shift) restoreTab(); else { createTab(homeURL, Boolean(active()?.private)); focusAddress(); } }
   else if (command && input.shift && key === 'n') { event.preventDefault(); createTab(homeURL, true); focusAddress(); }
+  else if (command && key === 'h') { event.preventDefault(); openPanel('history'); }
+  else if (command && key === 'j') { event.preventDefault(); openPanel('downloads'); }
+  else if (command && input.shift && key === 'o') { event.preventDefault(); openPanel('bookmarks'); }
+  else if (command && input.shift && key === 'i') { event.preventDefault(); contents()?.openDevTools({ mode: 'detach' }); }
+  else if (command && ['p', 's'].includes(key)) { event.preventDefault(); void commandFromKeyboard(key === 'p' ? 'print' : 'save-offline'); }
   else if (command && /^[1-9]$/.test(key)) { event.preventDefault(); const index = key === '9' ? tabs.length - 1 : Number(key) - 1; if (tabs[index]) activate(tabs[index].id); }
   else if (command && ['PageUp', 'PageDown'].includes(input.key)) { event.preventDefault(); const index = tabs.findIndex(tab => tab.id === activeId), step = input.key === 'PageUp' ? -1 : 1; if (input.shift) { const current = active(), group = tabs.filter(tab => tab.pinned === current.pinned), place = group.indexOf(current), target = Math.max(0, Math.min(group.length - 1, place + step)); if (place !== target) moveTab(current.id, step > 0 ? group[target + 1]?.id || null : group[target].id); } else activate(tabs[(index + step + tabs.length) % tabs.length].id); }
   else if (command && key === 'w') { event.preventDefault(); closeTab(activeId); }
@@ -168,6 +195,7 @@ function handleKeyboard(event, input) {
   else if (input.alt && input.key === 'ArrowRight') { event.preventDefault(); const wc = contents(); if (wc?.navigationHistory.canGoForward()) wc.navigationHistory.goForward(); }
   else if (input.key === 'F11') { event.preventDefault(); win.setFullScreen(!win.isFullScreen()); }
 }
+async function commandFromKeyboard(action) { try { await command(action, {}); } catch { message('تعذر تنفيذ الإجراء. جرّب مرة أخرى.'); } }
 function attachView(tab, inheritedContents) {
   const ses = sessionFor(tab.private);
   const view = new WebContentsView({ webPreferences: preferences(ses), ...(inheritedContents ? { webContents: inheritedContents } : {}) });
@@ -244,7 +272,7 @@ function createTab(url = homeURL, isPrivate = false, load = true, inheritedConte
 function activate(id, focusPage = true) {
   const tab = tabs.find(item => item.id === id);
   if (!tab) return;
-  activeId = id; overlay = false; notice = '';
+  activeId = id; dismissOverlay(); notice = '';
   if (!tab.view) { attachView(tab); void loadTabURL(tab, tab.url); }
   layout(); if (focusPage) tab.view.webContents.focus(); else win.webContents.focus(); publish();
 }
@@ -336,8 +364,8 @@ async function command(action, data) {
     case 'tab-context-menu': tabContextMenu(data); break;
     case 'close': closeTab(data.id); break;
     case 'restore': restoreTab(); break;
-    case 'navigate': { const destination = resolveDestination(data.value, testMode); if (!destination) { message('اكتب رابطًا مشفرًا أو عبارة بحث.'); break; } if (destination.panel) { openPanel(destination.panel); break; } overlay = false; layout(); tab.error = ''; void loadTabURL(tab, nativeSiteURL(destination.url, tab.private, testMode)); wc.focus(); break; }
-    case 'home': overlay = false; layout(); void loadTabURL(tab, nativeSiteURL(homeURL, tab.private, testMode)); break;
+    case 'navigate': { const destination = resolveDestination(data.value, testMode); if (!destination) { message('اكتب رابطًا مشفرًا أو عبارة بحث.'); break; } if (destination.panel) { openPanel(destination.panel); break; } dismissOverlay(); layout(); tab.error = ''; void loadTabURL(tab, nativeSiteURL(destination.url, tab.private, testMode)); wc.focus(); break; }
+    case 'home': dismissOverlay(); layout(); void loadTabURL(tab, nativeSiteURL(homeURL, tab.private, testMode)); break;
     case 'back': if (wc?.navigationHistory.canGoBack()) wc.navigationHistory.goBack(); break;
     case 'forward': if (wc?.navigationHistory.canGoForward()) wc.navigationHistory.goForward(); break;
     case 'reload': if (wc) wc.reload(); else activate(activeId); break;
@@ -396,6 +424,12 @@ async function command(action, data) {
       tab.diagnostics = { response: number(raw?.response), dom: number(raw?.dom), load: number(raw?.load), paint: number(raw?.paint), resources: number(raw?.resources), memory, gpu, measuredAt: Date.now() };
       break;
     }
+    case 'print': {
+      if (!wc || wc.isDestroyed()) break;
+      dismissOverlay(); layout();
+      wc.print({ silent: false, printBackground: true }, (success, reason) => { if (!success && reason && !/cancel/i.test(reason)) message('تعذرت الطباعة. تحقق من إعدادات الطابعة وأعد المحاولة.'); });
+      break;
+    }
     case 'save-pdf': {
       if (!wc || wc.isDestroyed()) break;
       const capturedURL = wc.getURL();
@@ -410,11 +444,11 @@ async function command(action, data) {
       const filename = image ? 'sanad-page.png' : 'sanad-page.mhtml';
       const result = testMode ? { canceled: false, filePath: path.join(app.getPath('userData'), filename) } : await dialog.showSaveDialog(win, { title: image ? 'حفظ صورة الجزء الظاهر من الصفحة' : 'حفظ الصفحة للقراءة دون اتصال', defaultPath: filename, filters: [{ name: image ? 'PNG image' : 'MHTML web archive', extensions: [image ? 'png' : 'mhtml'] }] });
       if (result.canceled || !result.filePath || wc.isDestroyed() || wc.getURL() !== capturedURL) break;
-      if (image) { overlay = false; layout(); const capture = await wc.capturePage(); if (capture.isEmpty()) throw new Error('تعذر تصوير الصفحة.'); fs.writeFileSync(result.filePath, capture.toPNG()); }
+      if (image) { dismissOverlay(); layout(); const capture = await wc.capturePage(); if (capture.isEmpty()) throw new Error('تعذر تصوير الصفحة.'); fs.writeFileSync(result.filePath, capture.toPNG()); }
       else await wc.savePage(result.filePath, 'MHTML');
       message(image ? 'تم حفظ صورة الصفحة.' : 'تم حفظ نسخة MHTML للقراءة بمتصفح متوافق دون اتصال.'); break;
     }
-    case 'overlay': overlay = data.value === true; layout(); break;
+    case 'overlay': if (data.value === true) return showOverlay(); dismissOverlay(); layout(); break;
     case 'toolbar-height': if (Number.isFinite(data.value)) { toolbarHeight = Math.max(80, Math.min(320, Math.ceil(data.value))); layout(); } break;
     case 'devtools': wc?.openDevTools({ mode: 'detach' }); break;
     case 'fullscreen': win.setFullScreen(!win.isFullScreen()); break;
@@ -462,7 +496,7 @@ app.whenReady().then(async () => {
     const url = new URL(request.url);
     const file = url.hostname === 'browser' && localFiles.get(url.pathname);
     if (!file) return new Response('Not found', { status: 404 });
-    return new Response(fs.readFileSync(path.join(__dirname, file[0])), { headers: { 'Content-Type': file[1], 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" } });
+    return new Response(fs.readFileSync(path.join(__dirname, file[0])), { headers: { 'Content-Type': file[1], 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" } });
   });
   ipcMain.handle('sanad-browser:command', async (event, action, data = {}) => {
     if (!trustedSender(event, win?.webContents) || typeof action !== 'string' || !data || typeof data !== 'object' || JSON.stringify(data).length > 10000) throw new Error('Request rejected');

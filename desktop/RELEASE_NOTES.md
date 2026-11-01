@@ -1,3 +1,13 @@
+# 1.3.7 — Clear browser controls and permanent strict-search lock
+
+- Refine tabs with connected active-tab curves, clear close targets, compact pinned tabs, and a rounded address bar.
+- Replace the tools grid with grouped menu rows, icons, shortcuts, expandable save/tools groups, and stable zoom controls.
+- Add actual system printing and shortcuts for printing, saving, history, bookmarks and downloads.
+- Show a permanent green strict-search lock that opens a clear explanation of the enforced search policy. It has no disable control.
+- Keep a bounded page image only in memory while a shell panel is open, then discard it when closed or the active tab changes.
+
+---
+
 # 1.3.6 — Fluent tabs and location privacy
 
 - Keep tab elements stable during title/loading updates; animate opening, closing and reordering with reduced-motion support.

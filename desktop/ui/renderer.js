@@ -1,8 +1,8 @@
 'use strict';
 const api = window.sanadBrowser;
 const $ = id => document.getElementById(id);
-let state, panelName = '', panelBody, filterInput, lastActiveId, lastReaderText, lastReaderTitle, lastMenuKey = '', lastPrivacyKey = '', networkPortDraft;
-const titles = { menu: 'أدوات المتصفح', tabs: 'التبويبات', bookmarks: 'المفضلة', history: 'السجل على هذا الجهاز', downloads: 'التنزيلات', privacy: 'حماية الخصوصية', reader: 'وضع القراءة', performance: 'أداء الصفحة', about: 'حول Sanad', licenses: 'التراخيص والمصادر المفتوحة' };
+let state, panelName = '', panelBody, filterInput, lastActiveId, lastReaderText, lastReaderTitle, lastPrivacyKey = '', networkPortDraft, menuController, panelRequest = 0;
+const titles = { menu: 'سَنَد الحرمين', tabs: 'التبويبات', bookmarks: 'المفضلة', history: 'السجل على هذا الجهاز', downloads: 'التنزيلات', privacy: 'حماية الخصوصية', 'search-policy': 'إجراء البحث الصارم', reader: 'وضع القراءة', performance: 'أداء الصفحة', about: 'حول Sanad', licenses: 'التراخيص والمصادر المفتوحة' };
 const normalize = value => String(value).normalize('NFKC').replace(/[\u064b-\u065f\u0670\u0640]/g, '').toLowerCase();
 const iconPaths = {
   back: ['M5 12h14', 'm13 6 6 6-6 6'], forward: ['M5 12h14', 'm11 6-6 6 6 6'],
@@ -10,7 +10,16 @@ const iconPaths = {
   shield: ['M12 3 4 6v6c0 4 3.5 7.5 8 9 4.5-1.5 8-5 8-9V6Z', 'm8 12 3 3 5-6'],
   download: ['M12 3v12', 'm7 10 5 5 5-5', 'M4 17v4h16v-4'],
   user: ['M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8', 'M4 21v-3a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v3'],
-  menu: ['M4 6h16', 'M4 12h16', 'M4 18h16'], plus: ['M12 5v14', 'M5 12h14'],
+  menu: ['M12 4v.01', 'M12 12v.01', 'M12 20v.01'], plus: ['M12 5v14', 'M5 12h14'],
+  tab: ['M4 5h16v15H4Z', 'M4 9h16', 'M12 12v5', 'M9.5 14.5h5'], tabs: ['M7 3h14v15H7Z', 'M3 7v14h14'],
+  private: ['M4 11h16', 'm7 11 2-7h6l2 7', 'M5 16a3 3 0 1 0 6 0 3 3 0 0 0-6 0', 'M13 16a3 3 0 1 0 6 0 3 3 0 0 0-6 0', 'M11 16h2'],
+  restore: ['M4 4v6h6', 'M4 10a8 8 0 1 1 1 8'], history: ['M3 11a9 9 0 1 1 2 7', 'M3 4v7h7', 'M12 7v5l3 2'], chevron: ['m14 7-5 5 5 5'],
+  fullscreen: ['M8 3H3v5', 'M16 3h5v5', 'M21 16v5h-5', 'M8 21H3v-5'],
+  print: ['M6 8V3h12v5', 'M6 17H3V9h18v8h-3', 'M6 14h12v7H6Z'], reader: ['M3 4h7l2 2 2-2h7v16h-7l-2 2-2-2H3Z', 'M12 6v16'],
+  save: ['M4 3h13l4 4v14H3V3Z', 'M7 3v7h10V3', 'M7 21v-7h10v7'], file: ['M5 3h9l5 5v13H5Z', 'M14 3v6h5', 'M8 13h8', 'M8 17h6'],
+  image: ['M3 3h18v18H3Z', 'm3 17 6-6 4 4 3-3 5 5', 'M16 7h.01'], copy: ['M8 8h13v13H8Z', 'M16 4V2H2v14h2'],
+  tools: ['M14 6a6 6 0 0 0-8 8L2 18l4 4 4-4a6 6 0 0 0 8-8l-4 4-4-4Z'], performance: ['M3 20V10', 'M9 20V4', 'M15 20v-7', 'M21 20V8'],
+  sleep: ['M20 15A8 8 0 0 1 9 4a8 8 0 1 0 11 11'], code: ['m8 6-6 6 6 6', 'm16 6 6 6-6 6', 'm14 3-4 18'], theme: ['M12 3a9 9 0 1 0 0 18Z'], info: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18', 'M12 11v6', 'M12 7h.01'],
   search: ['M10 16a6 6 0 1 0 0-12 6 6 0 0 0 0 12', 'm15 15 6 6'],
   close: ['m6 6 12 12', 'M6 18 18 6'], lock: ['M7 10V7a5 5 0 0 1 10 0v3', 'M5 10h14v11H5Z'],
   star: ['m12 3 2.8 5.7 6.3 .9 -4.6 4.5 1.1 6.3 -5.6 -3 -5.6 3 1.1 -6.3 L3 9.6l6.2 -.9Z']
@@ -30,22 +39,31 @@ async function command(action, data = {}) {
 }
 const tabStrip = window.SanadTabStrip({ root: $('tabs'), previous: $('tabs-prev'), next: $('tabs-next'), count: $('tab-count'), announcement: $('tab-announcement'), command });
 async function go(url, newTab = false) { closePanel(); if (newTab) await command('new'); await command('navigate', { value: url }); }
-function closePanel() { const wasReader = panelName === 'reader'; panelName = ''; $('panel').close(); void command('overlay', { value: false }); if (wasReader) void command('reader-clear'); }
+function clearPreview() { $('page-preview').hidden = true; $('page-preview').removeAttribute('src'); }
+function closePanel() { const wasReader = panelName === 'reader'; panelName = ''; panelRequest++; clearPreview(); $('panel').close(); $('menu-button').setAttribute('aria-expanded', 'false'); void command('overlay', { value: false }); if (wasReader) void command('reader-clear'); }
 function openPanel(name) {
   if (name === 'find') {
     closePanel(); $('find-bar').hidden = false; $('find-input').focus(); $('find-input').select(); return;
   }
   if (!titles[name]) return;
   if (name === 'privacy') { networkPortDraft = String(state?.locationPrivacy?.port || 9050); lastPrivacyKey = ''; }
-  panelName = name; lastReaderText = lastReaderTitle = undefined; lastMenuKey = ''; $('panel').classList.toggle('reader-panel', name === 'reader'); $('panel-title').textContent = titles[name]; $('panel-content').replaceChildren();
+  panelName = name; const request = ++panelRequest; lastReaderText = lastReaderTitle = undefined; $('panel').classList.toggle('reader-panel', name === 'reader'); $('panel').classList.toggle('browser-menu', name === 'menu'); $('menu-button').setAttribute('aria-expanded', String(name === 'menu')); $('panel-title').textContent = titles[name]; $('panel-content').replaceChildren();
   filterInput = null;
   if (['tabs', 'bookmarks', 'history'].includes(name)) {
     filterInput = element('input', 'filter'); filterInput.type = 'search'; filterInput.placeholder = `ابحث في ${titles[name]}`;
     filterInput.setAttribute('aria-label', filterInput.placeholder); filterInput.addEventListener('input', renderPanel);
     $('panel-content').append(filterInput);
   }
-  panelBody = element('div'); $('panel-content').append(panelBody); renderPanel();
-  void command('overlay', { value: true }); if (!$('panel').open) $('panel').showModal(); filterInput?.focus();
+  panelBody = element('div'); $('panel-content').append(panelBody);
+  if (name === 'menu') menuController = window.SanadBrowserMenu({ root: panelBody, command, openPanel, closePanel, element, button, setIcon });
+  renderPanel();
+  void command('overlay', { value: true }).then(next => {
+    if (request !== panelRequest || panelName !== name || !next?.pagePreview) return;
+    if (/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(next.pagePreview) && next.pagePreview.length < 2100000) { $('page-preview').src = next.pagePreview; $('page-preview').hidden = false; }
+  });
+  if (!$('panel').open) $('panel').showModal();
+  $('panel').scrollTop = 0;
+  if (name === 'menu') panelBody.querySelector('button:not(:disabled)')?.focus(); else filterInput?.focus();
   if (name === 'performance') void command('diagnostics');
   if (name === 'about') void command('updates-check', { automatic: true });
 }
@@ -53,12 +71,8 @@ function hint(text) { return element('p', 'hint', text); }
 function matches(item) { return !filterInput?.value || normalize(`${item.title || ''} ${item.url || ''}`).includes(normalize(filterInput.value)); }
 function renderPanel() {
   if (!state || !panelName || !panelBody) return;
-  // Loading/blocked-request updates must not detach a menu button between
-  // pointer-down (or an accessibility Invoke request) and its click handler.
   if (panelName === 'menu') {
-    const key = JSON.stringify([state.preferences.theme, state.activeId, state.tabs.find(tab => tab.id === state.activeId)?.zoom]);
-    if (lastMenuKey === key && panelBody.childElementCount > 0) return;
-    lastMenuKey = key;
+    menuController?.update(state); return;
   }
   if (panelName === 'reader' && state.reader?.text === lastReaderText && state.reader?.title === lastReaderTitle && panelBody.childElementCount > 0) return;
   if (panelName === 'privacy' && document.activeElement?.id === 'network-proxy-port') return;
@@ -73,29 +87,12 @@ function renderPanel() {
   }
   const fragment = document.createDocumentFragment();
   const append = node => fragment.append(node);
-  if (panelName === 'menu') {
-    const actions = element('div', 'actions');
-    const items = [
-      ['تبويب جديد', () => { closePanel(); void command('new'); }],
-      ['تبويب خاص', () => { closePanel(); void command('new', { private: true }); }],
-      ['المفضلة', () => openPanel('bookmarks')], ['السجل', () => openPanel('history')],
-      ['التنزيلات', () => openPanel('downloads')], ['البحث في الصفحة', () => openPanel('find')],
-      ['حماية الخصوصية', () => openPanel('privacy')],
-      [state.preferences.theme === 'dark' ? 'المظهر النهاري' : 'المظهر الليلي', () => void command('theme')],
-      ['إراحة التبويبات غير النشطة', () => { closePanel(); void command('suspend'); }],
-      ['أدوات المطور', () => { closePanel(); void command('devtools'); }],
-      ['أداء الصفحة', () => openPanel('performance')],
-      ['وضع القراءة', () => { closePanel(); void command('reader'); }],
-      ['حفظ الصفحة PDF', () => { closePanel(); void command('save-pdf'); }],
-      ['حفظ صورة الصفحة', () => { closePanel(); void command('save-image'); }],
-      ['حفظ نسخة دون اتصال', () => { closePanel(); void command('save-offline'); }],
-      ['ملء الشاشة', () => { closePanel(); void command('fullscreen'); }],
-      ['نسخ رابط دون معاملات التتبع', () => void command('copy-link')],
-      ['حول Sanad', () => openPanel('about')], ['أنظمة سَنَد المستقبلية', () => void go('https://ip-murad.com/', true)]
-    ];
-    for (const [label, action] of items) actions.append(button(label, action));
-    append(actions); append(hint('إراحة التبويبات تعيد تحميلها عند فتحها. احفظ ما تكتبه في الصفحات قبل استخدامها.'));
-    const zoom = element('div', 'find-actions'); zoom.append(button('−', () => void command('zoom', { value: (state.tabs.find(tab => tab.id === state.activeId)?.zoom || 1) - .1 })), element('span', '', `حجم الصفحة ${Math.round((state.tabs.find(tab => tab.id === state.activeId)?.zoom || 1) * 100)}%`), button('+', () => void command('zoom', { value: (state.tabs.find(tab => tab.id === state.activeId)?.zoom || 1) + .1 }))); append(zoom);
+  if (panelName === 'search-policy') {
+    const status = element('div', 'strict-policy-heading'); const icon = element('span'); setIcon(icon, 'lock'); status.append(icon, element('strong', '', 'البحث الصارم مفعّل ومقفل')); append(status);
+    append(hint('الإجراء المطبّق في بحث سَنَد الحرمين:'));
+    const steps = element('ol', 'strict-policy-steps');
+    for (const text of ['يُطبّق مستوى التصفية الصارم تلقائيًا على كل بحث، بما فيه الصور والفيديو والتبويبات الخاصة.', 'تُصفّى النتائج الصريحة وفق سياسة البحث ومزوّد النتائج، وتُرفض الاستجابة التي تعلن مستوى تصفية أضعف.', 'يبقى البحث الصارم مفعّلًا عند تغيير الإعدادات أو استعادتها، ولا يوجد خيار لإيقافه.']) steps.append(element('li', '', text)); append(steps);
+    append(hint('ينطبق هذا الإجراء على نتائج بحث سَنَد الحرمين. قد تفوت المرشّحات بعض النتائج، ولا تتحكم هذه السياسة بمحتوى المواقع الخارجية التي تفتحها مباشرة.'));
   } else if (panelName === 'tabs') {
     const actions = element('div', 'actions'); actions.append(button('تبويب جديد', () => { closePanel(); void command('new'); }), button('استعادة آخر تبويب', () => void command('restore'))); actions.lastChild.disabled = !state.closedCount; append(actions);
     for (const tab of state.tabs.filter(matches)) {
@@ -213,7 +210,7 @@ function render(next) {
   state = next; const tab = state.tabs.find(item => item.id === state.activeId); if (!tab) return;
   document.documentElement.dataset.theme = state.preferences.theme;
   if (lastActiveId !== state.activeId || document.activeElement !== $('address')) $('address').value = tab.url === 'https://ip-murad.com/browser?surface=desktop' ? '' : tab.url;
-  if (lastActiveId !== state.activeId) { $('find-bar').hidden = true; $('find-input').value = ''; $('find-count').textContent = ''; if ($('panel').open) { panelName = ''; $('panel').close(); } }
+  if (lastActiveId !== state.activeId) { $('find-bar').hidden = true; $('find-input').value = ''; $('find-count').textContent = ''; if ($('panel').open) { panelName = ''; panelRequest++; clearPreview(); $('panel').close(); $('menu-button').setAttribute('aria-expanded', 'false'); } }
   lastActiveId = state.activeId;
   $('back').disabled = !tab.back; $('forward').disabled = !tab.forward; setIcon($('reload'), tab.loading ? 'close' : 'reload'); $('reload').setAttribute('aria-label', tab.loading ? 'إيقاف التحميل' : 'إعادة تحميل');
   const marked = state.bookmarks.some(item => item.url === tab.url); setIcon($('bookmark'), 'star', marked); $('bookmark').setAttribute('aria-pressed', String(marked));
@@ -233,6 +230,7 @@ for (const [id, action] of [['back', 'back'], ['forward', 'forward'], ['home', '
 $('reload').addEventListener('click', () => void command(state?.tabs.find(tab => tab.id === state.activeId)?.loading ? 'stop' : 'reload'));
 $('new-tab').addEventListener('click', () => void command('new')); $('tab-search').addEventListener('click', () => openPanel('tabs'));
 $('protection').addEventListener('click', () => openPanel('privacy')); $('downloads-button').addEventListener('click', () => openPanel('downloads')); $('menu-button').addEventListener('click', () => openPanel('menu'));
+$('strict-search').addEventListener('click', () => openPanel('search-policy')); setIcon($('strict-search-icon'), 'lock');
 $('close-panel').addEventListener('click', closePanel); $('panel').addEventListener('cancel', closePanel); $('panel').addEventListener('click', event => { if (event.target === $('panel')) closePanel(); });
 $('find-input').addEventListener('input', () => void command('find', { value: $('find-input').value }));
 for (const [id, forward] of [['find-prev', false], ['find-next', true]]) $(id).addEventListener('click', () => void command('find', { value: $('find-input').value, forward, next: true }));
@@ -243,7 +241,7 @@ setIcon($('protection'), 'shield', false, $('blocked-count'));
 setIcon($('tab-search'), 'search', false, $('tab-count'));
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('find-bar').hidden) { event.preventDefault(); closeFind(); } });
 let lastHeight = 0, resizeFrame = 0;
-new ResizeObserver(entries => { const height = Math.ceil(entries[0].borderBoxSize?.[0]?.blockSize || $('chrome').getBoundingClientRect().height); if (height === lastHeight) return; lastHeight = height; cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(() => void command('toolbar-height', { value: height })); }).observe($('chrome'));
+new ResizeObserver(entries => { const height = Math.ceil(entries[0].borderBoxSize?.[0]?.blockSize || $('chrome').getBoundingClientRect().height); if (height === lastHeight) return; lastHeight = height; document.documentElement.style.setProperty('--toolbar-height', `${height}px`); cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(() => void command('toolbar-height', { value: height })); }).observe($('chrome'));
 api.onState(render); api.onFocusAddress(() => { closePanel(); $('address').focus(); $('address').select(); }); api.onOpenPanel(openPanel);
 void command('state');
 
