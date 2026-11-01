@@ -1,3 +1,12 @@
+# 1.4.0 — Google account, cloud sync and Chrome import
+
+- Sign in through the existing Google/Firebase configuration at ip-murad.com in the system browser. Return using a short-lived one-use code, S256 PKCE and local state validation; Google tokens and email are never placed in the callback URL.
+- Scoped, revocable device credentials stay in the existing OS-protected encrypted local store. A public renderer state never contains credentials. External login is blocked while local proxy mode is enabled.
+- Opt-in account sync transfers bookmarks, supported search settings and ordinary tab sessions; history is optional. Private tabs, passwords and cookies are excluded. The service encrypts stored documents with AES-GCM using server-managed account keys; this is not end-to-end encryption.
+- Idempotent operations and atomic compare-and-swap preserve changes from multiple devices and retries. Native restart restores tab URLs lazily.
+- Preview Chrome profiles before import. Import bookmarks/folders, recent history, compatible preferences and readable session files in a worker. Modern protected sessions can be exported with the optional, user-authorized Chrome helper. Source Chrome files are not modified.
+- Limits: 1000 bookmarks, 200 history URLs, and 32 tabs. Unsupported Chrome-specific preferences, credentials and application-bound encrypted sessions are not silently claimed as imported.
+
 # 1.3.8 — Shared Chromium-style settings
 
 - Use the same settings component and stylesheet as the web version, with top search, sidebar sections, content cards and mobile navigation.

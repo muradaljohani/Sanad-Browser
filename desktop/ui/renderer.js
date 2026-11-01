@@ -1,8 +1,8 @@
 'use strict';
 const api = window.sanadBrowser;
 const $ = id => document.getElementById(id);
-let state, panelName = '', panelBody, filterInput, lastActiveId, lastReaderText, lastReaderTitle, lastPrivacyKey = '', networkPortDraft, menuController, settingsController, lastSettingsKey = '', panelRequest = 0;
-const titles = { menu: 'سَنَد الحرمين', settings: 'إعدادات المتصفح', tabs: 'التبويبات', bookmarks: 'المفضلة', history: 'السجل على هذا الجهاز', downloads: 'التنزيلات', privacy: 'حماية الخصوصية', 'search-policy': 'إجراء البحث الصارم', reader: 'وضع القراءة', performance: 'أداء الصفحة', about: 'حول Sanad', licenses: 'التراخيص والمصادر المفتوحة' };
+let state, panelName = '', panelBody, filterInput, lastActiveId, lastReaderText, lastReaderTitle, lastPrivacyKey = '', networkPortDraft, menuController, settingsController, accountController, lastSettingsKey = '', panelRequest = 0;
+const titles = { menu: 'سَنَد الحرمين', sync:'حسابك والمزامنة والاستيراد', settings: 'إعدادات المتصفح', tabs: 'التبويبات', bookmarks: 'المفضلة', history: 'السجل على هذا الجهاز', downloads: 'التنزيلات', privacy: 'حماية الخصوصية', 'search-policy': 'إجراء البحث الصارم', reader: 'وضع القراءة', performance: 'أداء الصفحة', about: 'حول Sanad', licenses: 'التراخيص والمصادر المفتوحة' };
 const normalize = value => String(value).normalize('NFKC').replace(/[\u064b-\u065f\u0670\u0640]/g, '').toLowerCase();
 const iconPaths = {
   back: ['M5 12h14', 'm13 6 6 6-6 6'], forward: ['M5 12h14', 'm11 6-6 6 6 6'],
@@ -64,6 +64,7 @@ function openPanel(name) {
     $('panel-content').append(filterInput);
   }
   panelBody = element('div'); $('panel-content').append(panelBody);
+  if (name === 'sync') accountController = window.SanadAccountPanel({root:panelBody,command,element,button});
   if (name === 'menu') menuController = window.SanadBrowserMenu({ root: panelBody, command, openPanel, closePanel, element, button, setIcon });
   renderPanel();
   void command('overlay', { value: true }).then(next => {
@@ -83,12 +84,13 @@ function renderPanel() {
   if (panelName === 'menu') {
     menuController?.update(state); return;
   }
+  if (panelName === 'sync') {accountController?.update(state);return;}
   if (panelName === 'settings') {
     const value = { ...state.preferences.search, theme: state.preferences.theme };
     const key = JSON.stringify([value, state.history.length]);
     if (lastSettingsKey === key && settingsController) return;
     lastSettingsKey = key;
-    const props = { value, historyCount: state.history.length, onChange: next => void command('search-preferences', { value: next }), onClearHistory: () => void command('history-clear'), onClearCache: () => void command('search-cache-clear'), onFullscreen: () => { closePanel(); void command('fullscreen'); }, onOpenAppPrivacy: () => openPanel('privacy') };
+    const props = { value, historyCount: state.history.length, onChange: next => void command('search-preferences', { value: next }), onClearHistory: () => void command('history-clear'), onClearCache: () => void command('search-cache-clear'), onFullscreen: () => { closePanel(); void command('fullscreen'); }, onOpenAppPrivacy: () => openPanel('privacy'), onOpenSync: () => openPanel('sync') };
     if (settingsController) settingsController.update(props); else settingsController = window.SanadSettings.mount(panelBody, props);
     return;
   }
@@ -238,6 +240,8 @@ function render(next) {
   $('network-status').textContent = state.locationPrivacy?.enabled ? 'وسيط محلي مضبوط · لم يُتحقّق من عنوان الخروج' : '';
   const localDocument = tab.url.startsWith('sanad-licenses://');
   if (tab.private) $('connection').textContent = 'خاص'; else if (localDocument) $('connection').textContent = 'محلي'; else setIcon($('connection'), 'lock'); $('connection').setAttribute('aria-label', tab.private ? 'تبويب خاص' : localDocument ? 'مستند محلي' : 'اتصال مشفر');
+  $('account').setAttribute('aria-label',state.sync?.signedIn?'حساب Google والمزامنة':'تسجيل الدخول والمزامنة عبر Google');
+  $('account').title=state.sync?.identity?.email||'حسابك والمزامنة';
   $('notice').textContent = state.notice; $('notice').hidden = !state.notice; $('page-error').textContent = tab.error; $('page-error').hidden = !tab.error;
   tabStrip.update(state);
   omnibox.update(state);

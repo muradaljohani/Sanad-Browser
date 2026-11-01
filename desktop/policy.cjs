@@ -52,7 +52,7 @@ function mayRemember(raw, testMode = false) {
   const safe = safeURL(raw, testMode);
   if (!safe) return false;
   const url = new URL(safe);
-  if (/\/(?:oauth|callback|sign-in|sign-out|signin|signout)(?:\/|$)|\/__\/auth\//i.test(url.pathname)) return false;
+  if (/\/(?:auth|oauth|callback|sign-in|sign-out|signin|signout)(?:\/|$)|\/__\/auth\//i.test(url.pathname)) return false;
   return ![...url.searchParams.keys(), ...new URLSearchParams(url.hash.slice(1)).keys()].some(key => /^(?:code|access_token|id_token|refresh_token|token|state)$/i.test(key));
 }
 function sanitizeBookmarks(value) {
@@ -63,7 +63,7 @@ function sanitizeBookmarks(value) {
     const url = entry && safeURL(entry.url);
     if (!url || !mayRemember(url) || seen.has(url)) return [];
     seen.add(url);
-    return [{ url, title: typeof entry.title === 'string' ? entry.title.trim().slice(0, 200) || new URL(url).hostname : new URL(url).hostname }];
+    return [{ url, title: typeof entry.title === 'string' ? entry.title.trim().slice(0, 200) || new URL(url).hostname : new URL(url).hostname, ...(typeof entry.folder==='string'&&entry.folder?{folder:entry.folder.slice(0,200)}:{}) }];
   });
 }
 function trustedSender(event, contents) {

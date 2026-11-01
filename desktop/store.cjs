@@ -5,6 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { safeURL, mayRemember, sanitizeBookmarks } = require('./policy.cjs');
 const { readBoundedText } = require('./bounded-file.cjs');
 const { createStateCipher, MAX_STATE_BYTES } = require('./state-encryption.cjs');
+const { normalizedSyncState, normalizedPendingLogin } = require('./browser-account-state.cjs');
 const { normalizeSearchPreferences } = require('./search-preferences.cjs');
 function normalizeState(saved = {}) {
   if (!saved || typeof saved !== 'object' || Array.isArray(saved)) saved = {};
@@ -14,7 +15,8 @@ function normalizeState(saved = {}) {
   let bookmarks = [];
   try { bookmarks = sanitizeBookmarks(saved.bookmarks ?? []); } catch {}
   const history = Array.isArray(saved.history) ? saved.history.slice(0, 200).filter(entry => entry && safeURL(entry.url) && mayRemember(entry.url)).map(entry => ({ url: entry.url, title: String(entry.title ?? '').slice(0, 200), timestamp: Number(entry.timestamp) || 0 })) : [];
-  return { preferences, bookmarks, history };
+  const sync=normalizedSyncState(saved.sync),syncPending=normalizedPendingLogin(saved.syncPending);
+  return { preferences, bookmarks, history, ...(sync?{sync}:{}), ...(syncPending?{syncPending}:{}) };
 }
 function openStore(directory) {
   const filename = path.join(directory, 'browser-state-v1.json');

@@ -125,6 +125,9 @@ jobs:
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $paths = @("dist/Sanad-Browser-$version-x64-Setup.exe", "dist/Sanad-Browser-$version-x64-Portable.exe", 'dist/win-unpacked/Sanad Browser.exe')
           ./scripts/verify-windows-signatures.ps1 -Paths $paths -ExpectedThumbprint $env:WIN_SIGNING_CERT_SHA1 -ReportPath test-results/packaged-signatures.json
+      - name: Verify Google handoff, scoped account sync and Chrome import on Windows
+        if: runner.os == 'Windows'
+        run: node tests/browser-account-desktop.test.cjs
       - name: Install and verify the actual Windows Setup
         if: runner.os == 'Windows'
         shell: pwsh

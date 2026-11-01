@@ -21,6 +21,7 @@
         Square150x150Logo="${square150x150Logo}" Square44x44Logo="${square44x44Logo}">
         ${defaultTile}
       </uap:VisualElements>
+      <Extensions><uap:Extension Category="windows.protocol"><uap:Protocol Name="sanad"><uap:DisplayName>Sanad Browser</uap:DisplayName></uap:Protocol></uap:Extension></Extensions>
     </Application>
   </Applications>
 </Package>
