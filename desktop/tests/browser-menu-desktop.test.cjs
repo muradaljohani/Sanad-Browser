@@ -75,8 +75,10 @@ async function main() {
     await menu(); await control('وضع القراءة').click(); await heading('وضع القراءة'); await shell.locator('.reader-text').waitFor(); await dismiss();
     await menu(); await shell.locator('summary').filter({ hasText: 'المزيد من الأدوات' }).click(); await control('أداء الصفحة').click(); await heading('أداء الصفحة'); await shell.locator('.details strong').first().waitFor(); await dismiss();
     await menu(); await shell.locator('summary').filter({ hasText: 'المزيد من الأدوات' }).click(); await control('أدوات المطور').click();
-    const end = Date.now() + 10000; while (!await app.evaluate(({ webContents }, base) => webContents.getAllWebContents().find(wc => wc.getURL() === base + '/').isDevToolsOpened(), base) && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 50));
-    assert.equal(await app.evaluate(({ webContents }, base) => { const wc = webContents.getAllWebContents().find(wc => wc.getURL() === base + '/'); const open = wc.isDevToolsOpened(); wc.closeDevTools(); return open; }, base), true);
+    const end = Date.now() + 15000; let toolsReady = false;
+    while (Date.now() < end) { toolsReady = await app.evaluate(({ webContents }, base) => { const wc = webContents.getAllWebContents().find(wc => wc.getURL() === base + '/'), tools = wc.devToolsWebContents; return Boolean(wc.isDevToolsOpened() && tools && !tools.isDestroyed() && !tools.isLoading()); }, base); if (toolsReady) break; await new Promise(resolve => setTimeout(resolve, 50)); }
+    assert.equal(toolsReady, true, 'the actual developer-tools document finishes loading');
+    await app.evaluate(({ webContents }, base) => webContents.getAllWebContents().find(wc => wc.getURL() === base + '/').closeDevTools(), base);
     await cmd('protection', { value: false }); assert.deepEqual((await cmd('state')).searchPolicy, { level: 'strict', locked: true }); await cmd('protection', { value: true });
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ ok: true, checks: ['real-grouped-menu-actions', 'menu-arrow-navigation', 'stable-zoom-focus', 'light-theme', 'raster-preview-no-page-reload-and-discard-on-close', 'green-locked-search-procedure', 'native-history-download-bookmark-shortcuts', 'new-private-restore-menu', 'real-PDF-PNG-MHTML-exports', 'system-print-dispatch', 'find-reader-performance-devtools', 'strict-independent-of-adblock'] }));
