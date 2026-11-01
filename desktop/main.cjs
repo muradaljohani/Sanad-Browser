@@ -543,6 +543,7 @@ async function createWindow() {
   win.webContents.on('before-input-event', handleKeyboard);
   win.webContents.on('will-navigate', event => event.preventDefault());
   win.on('resize', layout);
+  win.on('focus', () => { void browserAccount?.run('sync-now').catch(() => {}); });
   win.webContents.on('did-finish-load', publish);
   win.on('close', event => { if (!shuttingDown) { event.preventDefault(); void shutdown(); } });
   await win.loadURL('sanad-app://browser/index.html');
