@@ -27,6 +27,9 @@ async function main() {
     await shell.locator('#tabs .tab.active .tab-site-symbol img').waitFor({ state: 'visible' });
     assert(await shell.locator('#tabs .tab.active .tab-site-symbol img').evaluate(node => node.complete && node.naturalWidth > 0));
     await settings();
+    const settingsNavigation = await panel.locator('.sb-settings-nav').boundingBox();
+    const settingsContent = await panel.locator('.sb-settings-list').boundingBox();
+    assert(settingsNavigation && settingsContent && settingsNavigation.x >= settingsContent.x + settingsContent.width - 1, 'shared settings use the RTL Chromium sidebar layout');
     await panel.getByLabel('لغة نتائج البحث', { exact: true }).selectOption('ar'); await panel.getByLabel('منطقة البحث', { exact: true }).selectOption('sa');
     await poll(s => s.preferences.search.language === 'ar' && s.preferences.search.country === 'sa', 'shared locale');
     await panel.getByRole('button', { name: 'المظهر', exact: true }).click(); await panel.getByLabel('مظهر المتصفح', { exact: true }).selectOption('light');
