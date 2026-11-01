@@ -15,13 +15,20 @@ async function main() {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
   let app;
   try {
     app = await electron.launch({ args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), path.join(__dirname, '..')], env: { ...process.env, SANAD_BROWSER_TEST_MODE: '1', SANAD_BROWSER_TEST_PROFILE: profile, SANAD_BROWSER_TEST_URL: base + '/alpha' }, timeout: 30000 });
     const shell = await app.firstWindow(); await shell.waitForFunction(() => Boolean(window.sanadBrowser));
     const errors = []; shell.on('pageerror', error => errors.push(error.message));
     const cmd = (action, data = {}) => shell.evaluate(({ action, data }) => window.sanadBrowser.command(action, data), { action, data });
+    // CDP keyboard events can bypass Electron's before-input-event. Exercise native input instead.
+    const shortcut = (keyCode, shift = false) => app.evaluate(({ BrowserWindow }, { keyCode, shift }) => {
+      const wc = BrowserWindow.getAllWindows()[0].webContents;
+      wc.focus();
+      const modifiers = [process.platform === 'darwin' ? 'meta' : 'control', ...(shift ? ['shift'] : [])];
+      wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+      wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+    }, { keyCode, shift });
     const poll = async (predicate, label) => { const end = Date.now() + 15000; let state; while (Date.now() < end) { state = await cmd('state'); if (predicate(state)) return state; await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error(`Timed out ${label}: ${JSON.stringify(state)}`); };
     const select = id => shell.locator(`#tabs > .tab:not(.closing)[data-tab-id="${id}"] > .tab-select`);
     const close = id => shell.locator(`#tabs > .tab:not(.closing)[data-tab-id="${id}"] > .tab-close`);
@@ -60,8 +67,10 @@ async function main() {
     await cmd('pin', { id: alpha }); await cmd('tab-move', { id: gamma, beforeId: alpha });
     state = await cmd('state'); assert.equal(state.tabs[0].id, alpha); assert.equal(state.tabs[0].pinned, true);
     await close(alpha).click(); await poll(s => !s.tabs.some(t => t.id === alpha), 'close pinned tab');
-    await shell.keyboard.press(modifier + '+Shift+T');
+    await shortcut('T', true);
     await poll(s => s.tabs[0].pinned && s.tabs[0].url === base + '/alpha', 'restore pinned order');
+    await shortcut('1'); await poll(s => s.activeId === s.tabs[0].id, 'native Ctrl+1');
+    await shortcut('PageDown'); await poll(s => s.activeId === s.tabs[1].id, 'native Ctrl+PageDown');
     await shell.getByRole('button', { name: 'تبويب جديد', exact: true }).click();
     await shell.waitForFunction(() => document.activeElement?.id === 'address');
     await cmd('new', { private: true });
