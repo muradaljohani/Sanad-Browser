@@ -13,7 +13,8 @@ function decode(value, limit) {
 // No embedded password, application secret, raw key file or renderer key access.
 // Electron's async OS provider protects only the random data key. AES-GCM
 // authenticates each bounded state snapshot with a fresh 96-bit nonce.
-async function createStateCipher(safeStorage, platform = process.platform) {
+async function createStateCipher(safeStorage, platform = process.platform, {context} = {}) {
+  const aad = context ? Buffer.from(AAD.toString('utf8') + ':' + String(context).slice(0,200)) : AAD;
   if (!safeStorage?.isAsyncEncryptionAvailable || !safeStorage.encryptStringAsync || !safeStorage.decryptStringAsync) return null;
   try {
     if (!await safeStorage.isAsyncEncryptionAvailable()) return null;
@@ -35,7 +36,7 @@ async function createStateCipher(safeStorage, platform = process.platform) {
       try {
         if (raw.length !== 32) throw new Error('Invalid state key');
         key = await importKey(raw);
-        const plain = await webcrypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: AAD, tagLength: 128 }, key, data);
+        const plain = await webcrypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: aad, tagLength: 128 }, key, data);
         wrappedKey = envelope.wrappedKey;
         if (result.shouldReEncrypt) { wrappedKey = (await safeStorage.encryptStringAsync(raw.toString('base64'))).toString('base64'); rewrite = true; }
         return new TextDecoder('utf-8', { fatal: true }).decode(plain);
@@ -53,7 +54,7 @@ async function createStateCipher(safeStorage, platform = process.platform) {
         } finally { raw.fill(0); }
       }
       const iv = randomBytes(12);
-      const data = await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: AAD, tagLength: 128 }, key, Buffer.from(plain));
+      const data = await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad, tagLength: 128 }, key, Buffer.from(plain));
       rewrite = false;
       return JSON.stringify({ schema: 2, algorithm: 'AES-256-GCM', wrappedKey, iv: iv.toString('base64'), data: Buffer.from(data).toString('base64') });
     },
@@ -61,3 +62,4 @@ async function createStateCipher(safeStorage, platform = process.platform) {
 }
 
 module.exports = { createStateCipher, MAX_STATE_BYTES };
+
