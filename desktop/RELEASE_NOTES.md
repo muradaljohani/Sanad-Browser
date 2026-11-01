@@ -1,3 +1,13 @@
+# 1.3.6 — Fluent tabs and location privacy
+
+- Keep tab elements stable during title/loading updates; animate opening, closing and reordering with reduced-motion support.
+- Add drag ordering, RTL keyboard navigation, middle-click close, a tab count, overflow controls and native tab actions.
+- Keep pinned tabs together, preserve renderer sessions during moves, inherit private mode for new tabs, and focus the address field for new searches.
+- Include geolocation denial, restricted non-proxied WebRTC UDP and optional local SOCKS5 routing. Routing is configured but not a guarantee of anonymity; a trusted external tunnel is required.
+- Keep Sanad SafeSearch locked to strict. Store publication remains a separate release step.
+
+---
+
 # 1.3.5 — Sanad browser identity
 
 - Replace Electron and old package product tokens in the User-Agent with one `SanadBrowser/<version>` identity.
@@ -53,5 +63,6 @@ Ad/tracker protection: EasyList and EasyPrivacy snapshots are bundled at build t
 Validation gates: unit security/policy/update/filter tests, actual Chromium desktop interaction tests, full dependency audit, Windows/Linux packaging, and installation/launch/About/fuse verification of the actual Windows Setup executable. The Windows proof artifact records Authenticode status and SHA-256. A passing audit is not proof of the absence of unknown vulnerabilities; no independent penetration-test certification is claimed.
 
 Choose Setup.exe to install, or Portable.exe to run without installation. Code signing is enabled only when the publisher has configured a trusted Windows certificate in the release workflow. If the proof reports NotSigned, this remains an unsigned preview and Windows may warn about the publisher. Never bypass a security warning merely because this release exists. Update installation remains manual; the checker never executes downloaded code.
+
 
 

@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { readBoundedText } = require('./bounded-file.cjs');
 const { brandedUserAgent } = require('./user-agent.cjs');
+const { moveTabBefore } = require('./tab-order.cjs');
 const { readNetworkPrivacy, writeNetworkPrivacy, configureStartupPrivacy, configureSessionPrivacy, hardenWebContents, locationPermissionAllowed, validateConfig } = require('./location-privacy.cjs');
 const { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender } = require('./policy.cjs');
 const { openEncryptedStore } = require('./store.cjs');
@@ -45,6 +46,7 @@ const sessionSetup = new WeakMap();
 const localFiles = new Map([
   ['/index.html', ['ui/index.html', 'text/html; charset=utf-8']],
   ['/renderer.js', ['ui/renderer.js', 'text/javascript; charset=utf-8']],
+  ['/tab-strip.js', ['ui/tab-strip.js', 'text/javascript; charset=utf-8']],
   ['/browser.css', ['ui/browser.css', 'text/css; charset=utf-8']],
   ['/mark.png', ['assets/mark.png', 'image/png']],
   ['/wordmark.svg', ['assets/wordmark.svg', 'image/svg+xml']]
@@ -55,7 +57,7 @@ const contents = () => active()?.view?.webContents;
 const publicDownload = item => ({ id: item.id, name: item.name, status: item.status, received: item.received, total: item.total, private: item.private });
 function snapshot() {
   return {
-    tabs: tabs.map(tab => ({ id: tab.id, title: tab.title, url: tab.url, private: tab.private, pinned: tab.pinned, muted: tab.muted, sleeping: !tab.view, loading: Boolean(tab.view?.webContents.isLoading()), back: Boolean(tab.view?.webContents.navigationHistory.canGoBack()), forward: Boolean(tab.view?.webContents.navigationHistory.canGoForward()), blocked: tab.blocked, error: tab.error, zoom: tab.zoom, diagnostics: tab.diagnostics || null })),
+    tabs: tabs.map(tab => ({ id: tab.id, title: tab.title, url: tab.url, private: tab.private, pinned: tab.pinned, muted: tab.muted, closing: Boolean(tab.closing), sleeping: !tab.view, loading: Boolean(tab.view?.webContents.isLoading()), back: Boolean(tab.view?.webContents.navigationHistory.canGoBack()), forward: Boolean(tab.view?.webContents.navigationHistory.canGoForward()), blocked: tab.blocked, error: tab.error, zoom: tab.zoom, diagnostics: tab.diagnostics || null })),
     activeId, preferences: store.state.preferences, bookmarks: store.state.bookmarks, history: store.state.history,
     downloads: [...downloads.values()].map(publicDownload), closedCount: closedTabs.length,
     notice, reader: active()?.reader || null, protectionSource: protection.source(), protectionRevision: protection.revision(), updatingProtection,
@@ -150,7 +152,10 @@ function handleKeyboard(event, input) {
   const command = input.control || input.meta;
   const key = input.key.toLowerCase();
   if (command && ['l', 'k'].includes(key) && !input.shift) { event.preventDefault(); focusAddress(); }
-  else if (command && key === 't') { event.preventDefault(); input.shift ? restoreTab() : createTab(); }
+  else if (command && key === 't') { event.preventDefault(); if (input.shift) restoreTab(); else { createTab(homeURL, Boolean(active()?.private)); focusAddress(); } }
+  else if (command && input.shift && key === 'n') { event.preventDefault(); createTab(homeURL, true); focusAddress(); }
+  else if (command && /^[1-9]$/.test(key)) { event.preventDefault(); const index = key === '9' ? tabs.length - 1 : Number(key) - 1; if (tabs[index]) activate(tabs[index].id); }
+  else if (command && ['PageUp', 'PageDown'].includes(input.key)) { event.preventDefault(); const index = tabs.findIndex(tab => tab.id === activeId), step = input.key === 'PageUp' ? -1 : 1; if (input.shift) { const current = active(), group = tabs.filter(tab => tab.pinned === current.pinned), place = group.indexOf(current), target = Math.max(0, Math.min(group.length - 1, place + step)); if (place !== target) moveTab(current.id, step > 0 ? group[target + 1]?.id || null : group[target].id); } else activate(tabs[(index + step + tabs.length) % tabs.length].id); }
   else if (command && key === 'w') { event.preventDefault(); closeTab(activeId); }
   else if (command && key === 'r') { event.preventDefault(); contents()?.reload(); }
   else if (command && key === 'd') { event.preventDefault(); bookmark(); }
@@ -207,6 +212,7 @@ function attachView(tab, inheritedContents) {
   wc.on('will-prevent-unload', event => {
     if (!testMode && dialog.showMessageBoxSync(win, { type: 'question', title: 'مغادرة الصفحة', message: 'قد تحتوي الصفحة على تغييرات غير محفوظة. هل تريد إغلاقها؟', buttons: ['البقاء', 'مغادرة'], defaultId: 0, cancelId: 0, noLink: true }) === 1) event.preventDefault();
     else tab.closing = false;
+    publish();
   });
   wc.once('destroyed', () => { if (tab.view === view) finishClose(tab.id); });
   wc.on('did-navigate', (_event, url) => { if (url === 'about:blank' && !inheritedContents && tab.url !== 'about:blank') return; tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
@@ -235,12 +241,12 @@ function createTab(url = homeURL, isPrivate = false, load = true, inheritedConte
   if (load) { activate(tab.id); void loadTabURL(tab, safe); }
   publish(); return tab;
 }
-function activate(id) {
+function activate(id, focusPage = true) {
   const tab = tabs.find(item => item.id === id);
   if (!tab) return;
   activeId = id; overlay = false; notice = '';
   if (!tab.view) { attachView(tab); void loadTabURL(tab, tab.url); }
-  layout(); tab.view.webContents.focus(); publish();
+  layout(); if (focusPage) tab.view.webContents.focus(); else win.webContents.focus(); publish();
 }
 async function cleanupPrivate() {
   if (tabs.some(tab => tab.private) || !privateSession) return;
@@ -253,9 +259,10 @@ async function cleanupPrivate() {
 function destroyView(tab) { const view = tab.view; if (!view) return; tab.view = null; win.contentView.removeChildView(view); if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false }); }
 function closeTab(id) {
   const tab = tabs.find(item => item.id === id);
-  if (!tab) return;
+  if (!tab || tab.closing) return;
   if (!tab.view || tab.view.webContents.isDestroyed()) { finishClose(id); return; }
   tab.closing = true;
+  publish();
   tab.view.webContents.close({ waitForBeforeUnload: true });
 }
 function finishClose(id) {
@@ -270,7 +277,30 @@ function finishClose(id) {
   else if (id === activeId) activate(tabs.find(item => item.id === tab.openerId)?.id || tabs[Math.min(i, tabs.length - 1)].id);
   void cleanupPrivate(); publish();
 }
-function restoreTab() { const entry = closedTabs[0]; if (!entry || tabs.length >= MAX_TABS) return; closedTabs.shift(); const tab = createTab(entry.url); if (tab) tab.pinned = entry.pinned; publish(); }
+function restoreTab() { const entry = closedTabs[0]; if (!entry || tabs.length >= MAX_TABS) return; closedTabs.shift(); const tab = createTab(entry.url); if (tab) { tab.pinned = entry.pinned; tabs.sort((a, b) => Number(b.pinned) - Number(a.pinned)); } publish(); }
+function moveTab(id, beforeId = null) { tabs.splice(0, tabs.length, ...moveTabBefore(tabs, id, beforeId)); publish(); }
+function duplicateTab(id) {
+  const source = tabs.find(item => item.id === id); if (!source) return;
+  const next = createTab(source.url, source.private);
+  if (next) { next.zoom = source.zoom; next.view.webContents.setZoomFactor(next.zoom); }
+  publish();
+}
+function tabContextMenu(data) {
+  const tab = tabs.find(item => item.id === data.id); if (!tab) return;
+  const items = [
+    { label: 'إغلاق التبويب', click: () => closeTab(tab.id) },
+    { label: 'تكرار التبويب', enabled: tabs.length < MAX_TABS, click: () => duplicateTab(tab.id) },
+    { type: 'separator' },
+    { label: tab.pinned ? 'إلغاء تثبيت التبويب' : 'تثبيت التبويب', click: () => { void command('pin', { id: tab.id }); } },
+    { label: tab.muted ? 'تشغيل صوت التبويب' : 'كتم صوت التبويب', click: () => { void command('mute', { id: tab.id }); } },
+    { label: 'نقل إلى بداية المجموعة', click: () => moveTab(tab.id, tabs.find(item => item.pinned === tab.pinned)?.id) },
+    { label: 'نقل إلى نهاية المجموعة', click: () => moveTab(tab.id) },
+    { type: 'separator' },
+    { label: 'استعادة آخر تبويب مغلق', enabled: closedTabs.length > 0, click: restoreTab },
+  ];
+  const position = Number.isFinite(data.x) && Number.isFinite(data.y) ? { x: Math.max(0, Math.round(data.x)), y: Math.max(0, Math.round(data.y)) } : {};
+  Menu.buildFromTemplate(items).popup({ window: win, ...position });
+}
 function bookmark() {
   const tab = active(); if (!tab || !mayRemember(tab.url, testMode)) return;
   const old = store.state.bookmarks.find(item => item.url === tab.url);
@@ -299,8 +329,11 @@ async function command(action, data) {
   const wc = contents(), tab = active();
   switch (action) {
     case 'state': return snapshot();
-    case 'new': createTab(homeURL, data.private === true); focusAddress(); break;
-    case 'activate': activate(data.id); break;
+    case 'new': createTab(homeURL, data.private === true || (data.private !== false && Boolean(tab?.private))); focusAddress(); break;
+    case 'activate': activate(data.id, data.focus !== 'tab-strip'); break;
+    case 'tab-move': moveTab(data.id, typeof data.beforeId === 'string' ? data.beforeId : null); break;
+    case 'duplicate': duplicateTab(data.id || activeId); break;
+    case 'tab-context-menu': tabContextMenu(data); break;
     case 'close': closeTab(data.id); break;
     case 'restore': restoreTab(); break;
     case 'navigate': { const destination = resolveDestination(data.value, testMode); if (!destination) { message('اكتب رابطًا مشفرًا أو عبارة بحث.'); break; } if (destination.panel) { openPanel(destination.panel); break; } overlay = false; layout(); tab.error = ''; void loadTabURL(tab, nativeSiteURL(destination.url, tab.private, testMode)); wc.focus(); break; }
@@ -435,7 +468,7 @@ app.whenReady().then(async () => {
     if (!trustedSender(event, win?.webContents) || typeof action !== 'string' || !data || typeof data !== 'object' || JSON.stringify(data).length > 10000) throw new Error('Request rejected');
     try { return await command(action, data); } catch (error) { message(error instanceof Error ? error.message : 'تعذر تنفيذ الإجراء.'); return snapshot(); }
   });
-  Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'سَنَد', submenu: [{ label: 'تبويب جديد', accelerator: 'CmdOrCtrl+T', click: () => createTab() }, { label: 'بحث دون حفظ السجل', accelerator: 'CmdOrCtrl+Shift+N', click: () => createTab(homeURL, true) }, { label: 'استعادة التبويب', accelerator: 'CmdOrCtrl+Shift+T', click: restoreTab }, { type: 'separator' }, { role: 'quit' }] }]));
+  Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'سَنَد', submenu: [{ label: 'تبويب جديد', accelerator: 'CmdOrCtrl+T', click: () => { createTab(homeURL, Boolean(active()?.private)); focusAddress(); } }, { label: 'بحث دون حفظ السجل', accelerator: 'CmdOrCtrl+Shift+N', click: () => { createTab(homeURL, true); focusAddress(); } }, { label: 'استعادة التبويب', accelerator: 'CmdOrCtrl+Shift+T', click: restoreTab }, { type: 'separator' }, { role: 'quit' }] }]));
   await createWindow();
 }).catch(error => { console.error(error.message); app.quit(); });
 app.on('window-all-closed', () => app.quit());
