@@ -1,7 +1,7 @@
 'use strict';
 const api = window.sanadBrowser;
 const $ = id => document.getElementById(id);
-let state, panelName = '', panelBody, filterInput, lastActiveId, lastTabsKey = '', lastReaderText, lastReaderTitle, lastMenuKey = '', networkPortDraft;
+let state, panelName = '', panelBody, filterInput, lastActiveId, lastTabsKey = '', lastReaderText, lastReaderTitle, lastMenuKey = '', lastPrivacyKey = '', networkPortDraft;
 const titles = { menu: 'أدوات المتصفح', tabs: 'التبويبات', bookmarks: 'المفضلة', history: 'السجل على هذا الجهاز', downloads: 'التنزيلات', privacy: 'حماية الخصوصية', reader: 'وضع القراءة', performance: 'أداء الصفحة', about: 'حول Sanad', licenses: 'التراخيص والمصادر المفتوحة' };
 const normalize = value => String(value).normalize('NFKC').replace(/[\u064b-\u065f\u0670\u0640]/g, '').toLowerCase();
 const iconPaths = {
@@ -35,7 +35,7 @@ function openPanel(name) {
     closePanel(); $('find-bar').hidden = false; $('find-input').focus(); $('find-input').select(); return;
   }
   if (!titles[name]) return;
-  if (name === 'privacy') networkPortDraft = String(state?.locationPrivacy?.port || 9050);
+  if (name === 'privacy') { networkPortDraft = String(state?.locationPrivacy?.port || 9050); lastPrivacyKey = ''; }
   panelName = name; lastReaderText = lastReaderTitle = undefined; lastMenuKey = ''; $('panel').classList.toggle('reader-panel', name === 'reader'); $('panel-title').textContent = titles[name]; $('panel-content').replaceChildren();
   filterInput = null;
   if (['tabs', 'bookmarks', 'history'].includes(name)) {
@@ -61,6 +61,15 @@ function renderPanel() {
   }
   if (panelName === 'reader' && state.reader?.text === lastReaderText && state.reader?.title === lastReaderTitle && panelBody.childElementCount > 0) return;
   if (panelName === 'privacy' && document.activeElement?.id === 'network-proxy-port') return;
+  if (panelName === 'privacy') {
+    const key = JSON.stringify([state.preferences.protection, state.locationPrivacy, state.protectionSource, state.protectionRevision, state.updatingProtection]);
+    if (lastPrivacyKey === key && panelBody.childElementCount > 0) {
+      const counter = $('privacy-blocked-count');
+      if (counter) counter.textContent = `حُجبت ${state.tabs.find(tab => tab.id === state.activeId)?.blocked || 0} طلبات في هذا التبويب منذ فتحه.`;
+      return;
+    }
+    lastPrivacyKey = key;
+  }
   const fragment = document.createDocumentFragment();
   const append = node => fragment.append(node);
   if (panelName === 'menu') {
@@ -144,7 +153,7 @@ function renderPanel() {
     append(hint(state.protectionSource === 'standard' ? 'القوائم المحدثة محفوظة محليًا وتعمل دون إعادة تنزيلها مع كل زيارة.' : state.protectionSource === 'bundled' ? 'قوائم حظر كاملة مرفقة مع التطبيق وتعمل من أول تشغيل، حتى دون تحديث.' : 'تعذر تحميل القوائم الكاملة. قواعد الحماية الأساسية مستمرة؛ جرّب تحديث القوائم.'));
     append(hint('تشمل الحماية إخفاء المساحات الإعلانية ومحاولة تخطي إعلانات مشغّل يوتيوب عند تمييزها. لا يمكن ضمان حجب كل إعلان دائمًا؛ قد يغيّر الموقع طريقة عرضه.'));
     const update = button(state.updatingProtection ? 'جارٍ تحديث القوائم…' : 'تحديث قوائم الحماية', () => void command('protection-update')); update.disabled = state.updatingProtection; append(update);
-    append(hint(`حُجبت ${state.tabs.find(tab => tab.id === state.activeId)?.blocked || 0} طلبات في هذا التبويب منذ فتحه.`));
+    const counter = hint(`حُجبت ${state.tabs.find(tab => tab.id === state.activeId)?.blocked || 0} طلبات في هذا التبويب منذ فتحه.`); counter.id = 'privacy-blocked-count'; append(counter);
     append(hint('إذا توقف موقع عن العمل، يمكنك تعطيل الحجب ثم إعادة تحميله. التبويب الخاص يستخدم جلسة منفصلة تُمسح عند إغلاق آخر تبويب خاص؛ وحده لا يُخفي اتصالك عن الموقع أو مزود الشبكة.'));
   } else if (panelName === 'reader') {
     const reader = state.reader;

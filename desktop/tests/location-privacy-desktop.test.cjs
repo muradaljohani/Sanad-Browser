@@ -144,7 +144,7 @@ async function main() {
     });
     await shell.getByRole('button', { name: 'حماية الخصوصية', exact: true }).click();
     const exited = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Privacy restart did not exit within 15 seconds')), 15000);
+      const timer = setTimeout(() => reject(new Error(`Privacy restart did not exit within 15 seconds; savedEnabled=${readNetworkPrivacy(profile).enabled}; capturedRelaunch=${relaunchLog.includes('SANAD_TEST_RELAUNCH=')}`)), 15000);
       app.process().once('exit', () => { clearTimeout(timer); resolve(); });
     });
     await shell.getByRole('button', { name: 'إيقاف وضع الوسيط وإعادة التشغيل', exact: true }).click({ noWaitAfter: true });
