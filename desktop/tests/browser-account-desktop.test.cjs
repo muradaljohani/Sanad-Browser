@@ -18,7 +18,7 @@ async function main(){
    shell.openExternal=async url=>{app.accountTestURL=url;};const ses=session.fromPartition('persist:sanad-web');ses.protocol.handle('https',async request=>{const action=new URL(request.url).searchParams.get('action');if(action){const body=request.method==='POST'?await request.json():null;app.accountTestRequests.push({action,origin:request.headers.get('Origin')});if(action==='exchange'){app.accountTestDevice=body.deviceId;return Response.json({token:'sanad_'+'a'.repeat(43),identity:app.accountTestIdentity,expiresAt:Date.now()+600000});}if(action==='logout')return Response.json({signedOut:true});if(action==='sync'){if(body)app.accountTestDocument=model.applySyncBatch(app.accountTestDocument,app.accountTestDevice,body.events);return Response.json({document:app.accountTestDocument,revision:1,identity:app.accountTestIdentity,deviceId:app.accountTestDevice});}}
    return new Response('<!doctype html><title>Restored</title>',{headers:{'Content-Type':'text/html'}});});
   });
-  await panel.getByRole('button',{name:'تسجيل الدخول والمزامنة عبر Google',exact:true}).click();const url=await app.evaluate(({app})=>app.accountTestURL);assert.equal(new URL(url).hostname,'ip-murad.com');assert.ok(!url.includes('verifier='));
+  await panel.getByRole('button',{name:'تسجيل الدخول والمزامنة عبر Google',exact:true}).click();let url;for(let attempt=0;attempt<200;attempt++){url=await app.evaluate(({app})=>app.accountTestURL);if(url)break;await new Promise(resolve=>setTimeout(resolve,50));}assert.ok(url,'Google handoff completed after the encrypted store flush');assert.equal(new URL(url).hostname,'ip-murad.com');assert.ok(!url.includes('verifier='));
   await app.evaluate(({app},{state})=>app.emit('open-url',{preventDefault(){}},'sanad://auth-callback?code='+'c'.repeat(43)+'&state='+state),{state:'x'.repeat(43)});assert.equal(await app.evaluate(({app})=>app.accountTestRequests.length),0);
   await app.evaluate(({app},{state})=>app.emit('open-url',{preventDefault(){}},'sanad://auth-callback?code='+'c'.repeat(43)+'&state='+state),{state:new URL(url).searchParams.get('state')});await poll(s=>s.sync.signedIn&&s.sync.identity.email==='owner@workspace.example');
   await panel.getByRole('button',{name:'بدء المزامنة على هذا الحساب',exact:true}).click();const synced=await poll(s=>s.sync.phase==='ready'&&s.bookmarks.some(x=>x.url==='https://cloud.example/')&&s.tabs.some(x=>x.url==='https://restored.example/'));
@@ -27,6 +27,6 @@ async function main(){
   await shell.screenshot({path:path.join(output,'google-account-sync.png')});
   await cmd('sync-sign-out');await poll(s=>!s.sync.identity);assert.equal((await cmd('state')).bookmarks.some(x=>x.url==='https://cloud.example/'),true);
  }else await shell.screenshot({path:path.join(output,'google-account-import-offline.png')});
- }finally{if(app)await app.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});}
+ }catch(error){if(app){const page=await app.firstWindow();await page.screenshot({path:path.join(output,'google-account-failure.png')}).catch(()=>{});console.error(await page.locator('body').innerText().catch(()=>''));}throw error;}finally{if(app)await app.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
