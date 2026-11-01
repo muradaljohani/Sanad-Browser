@@ -23,6 +23,8 @@ const testMode = !app.isPackaged && process.env.SANAD_BROWSER_TEST_MODE === '1';
 const homeURL = testMode && safeURL(process.env.SANAD_BROWSER_TEST_URL, true) ? process.env.SANAD_BROWSER_TEST_URL : HOME;
 if (testMode && process.env.SANAD_BROWSER_TEST_PROFILE) app.setPath('userData', process.env.SANAD_BROWSER_TEST_PROFILE);
 app.setName('Sanad Browser');
+// Keep original launch arguments: runtime proxy switches must not survive disabling the mode.
+const relaunchArgs = process.argv.slice(1);
 // Read the non-secret routing preference before Chromium creates a network service.
 let networkPrivacy, privacyStartupError;
 try { networkPrivacy = readNetworkPrivacy(app.getPath('userData')); }
@@ -328,7 +330,7 @@ async function command(action, data) {
       const result = await dialog.showMessageBox(win, { type: 'question', title: 'إعادة تشغيل سَنَد الحرمين', message: config.enabled ? `سيُستخدم وسيط SOCKS5 محلي على المنفذ ${config.port}. شغّله أولًا. سيتوقف التصفح إذا لم يكن متاحًا. ستُغلق التبويبات والتنزيلات عند إعادة التشغيل.` : 'سيُعاد تشغيل المتصفح دون إلزام الاتصال بالوسيط المحلي. قد يظهر عنوان IP الحقيقي للمواقع. ستُغلق التبويبات والتنزيلات.', buttons: ['إلغاء', 'حفظ وإعادة التشغيل'], defaultId: 0, cancelId: 0, noLink: true });
       if (result.response !== 1) break;
       writeNetworkPrivacy(app.getPath('userData'), config);
-      app.relaunch(); await shutdown(); break;
+      app.relaunch({ args: relaunchArgs }); await shutdown(); break;
     }
     case 'protection-update': if (!updatingProtection) { updatingProtection = true; publish(); try { await protection.update(); for (const target of tabs) if (target.view) void applyPageProtection(target, target.view.webContents); message('تم تحديث قوائم الحماية.'); } catch { message('تعذر تحديث القوائم. الحماية المحلية مستمرة.'); } finally { updatingProtection = false; } } break;
     case 'download-pause': downloads.get(data.id)?.item.pause(); break;
