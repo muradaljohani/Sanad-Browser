@@ -29,6 +29,11 @@ async function main() {
       wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
       wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
     }, { keyCode, shift });
+    const output = path.join(__dirname, '..', 'test-results'); fs.mkdirSync(output, { recursive: true });
+    const screenshot = async name => {
+      const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64'));
+      fs.writeFileSync(path.join(output, name), Buffer.from(png, 'base64'));
+    };
     const poll = async (predicate, label) => { const end = Date.now() + 15000; let state; while (Date.now() < end) { state = await cmd('state'); if (predicate(state)) return state; await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error(`Timed out ${label}: ${JSON.stringify(state)}`); };
     const select = id => shell.locator(`#tabs > .tab:not(.closing)[data-tab-id="${id}"] > .tab-select`);
     const close = id => shell.locator(`#tabs > .tab:not(.closing)[data-tab-id="${id}"] > .tab-close`);
@@ -71,6 +76,7 @@ async function main() {
     await poll(s => s.tabs[0].pinned && s.tabs[0].url === base + '/alpha', 'restore pinned order');
     await shortcut('1'); await poll(s => s.activeId === s.tabs[0].id, 'native Ctrl+1');
     await shortcut('PageDown'); await poll(s => s.activeId === s.tabs[1].id, 'native Ctrl+PageDown');
+    await screenshot('tab-strip.png');
     await shell.getByRole('button', { name: 'تبويب جديد', exact: true }).click();
     await shell.waitForFunction(() => document.activeElement?.id === 'address');
     await cmd('new', { private: true });
@@ -81,13 +87,13 @@ async function main() {
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(900, 650));
     await shell.getByRole('button', { name: 'تمرير إلى التبويبات التالية', exact: true }).waitFor({ state: 'visible' });
     state = await cmd('state'); assert.equal(await shell.locator('#tab-count').textContent(), String(state.tabs.length));
+    assert.equal(await shell.locator('#tabs').evaluate(root => root.scrollHeight <= root.clientHeight), true, 'overflow remains horizontal without clipping tabs vertically');
     await shell.emulateMedia({ reducedMotion: 'reduce' });
     await cmd('new', { private: false });
     await shell.waitForFunction(() => document.querySelector('#tabs').getAnimations({ subtree: true }).length === 0);
     assert.deepEqual(errors, []);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1280, 860));
-    const output = path.join(__dirname, '..', 'test-results'); fs.mkdirSync(output, { recursive: true });
-    await shell.screenshot({ path: path.join(output, 'tab-strip.png') });
+    await screenshot('tab-strip-overflow.png');
     console.log(JSON.stringify({ ok: true, checks: ['stable-DOM-on-title-and-state', 'plain-text-title', 'RTL-arrow-Home-End-focus', 'middle-close-without-activation', 'drag-without-reloading', 'pinned-boundary', 'restore-pinned', 'new-address-focus', 'private-successor', 'duplicate-zoom', 'overflow-count', 'reduced-motion'] }));
   } finally { if (app) await app.close(); await new Promise(resolve => server.close(resolve)); fs.rmSync(profile, { recursive: true, force: true }); }
 }
