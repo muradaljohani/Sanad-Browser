@@ -137,6 +137,7 @@ public static class SanadPackageActivation {
     } catch {
       $invoke = $null
       if ($button.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) { $invoke.Invoke() }
+      elseif ($button.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$invoke)) { $invoke.Expand() }
       else { throw }
     }
     Start-Sleep -Milliseconds 250
@@ -168,6 +169,7 @@ public static class SanadPackageActivation {
   Save-StoreScreenshot 'store-privacy.png'
   Click-Control 'إغلاق'
   Click-Control 'أدوات المتصفح'
+  Click-Control 'الحفظ والمشاركة'
   $null = Find-Control 'حفظ الصفحة PDF'
   Save-StoreScreenshot 'store-tools.png'
   Click-Control 'إغلاق'
