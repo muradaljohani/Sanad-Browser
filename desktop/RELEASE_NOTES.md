@@ -1,3 +1,14 @@
+# 1.5.0 — Native profiles and protected private-data sync
+
+- Isolate each local profile's encrypted settings, history, normal tabs, private vault and persistent Chromium cookies. Switch profiles without sharing sessions; archive profiles recoverably.
+- Route a different Google account to its own profile. Keep the existing Firebase Google login, PKCE handoff and scoped revocable credentials; login requires no extension.
+- Add independent switches for bookmarks, compatible settings, history, tabs, passwords and personal data. Disabling a category preserves local data and removes values from unsent operations.
+- Add OS-encrypted password/address management and optional cloud sync. Private sync has its own encrypted document, durable queue and revision. Service-managed cloud keys are the chosen Google-login-only mode; this is not end-to-end encryption.
+- Save credentials only after an approved same-origin HTTPS form submission. Fill explicitly on the matching HTTPS site without submitting. Password reveal expires after 10 seconds; copied values expire after 30 seconds if unchanged.
+- Add a permission-reviewed manager for trusted local unpacked extensions supported by Electron. Extension files, machine paths, cookies and Chrome cloud data are not synchronized.
+- Validate isolated cookie sessions and credential fill with actual Windows OS encryption, plus two-device merge/retry, per-type selection, existing desktop/installation and MSIX tests.
+- Existing account sessions need a new desktop Google sign-in to opt into private-vault synchronization. Store submission and public installer publication remain separate release steps.
+
 # 1.4.1
 
 - Starts account sync automatically after the disclosed Google sign-in flow; optional history is selected before sign-in. No second activation button is required.
