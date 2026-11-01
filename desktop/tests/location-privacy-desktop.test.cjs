@@ -8,6 +8,7 @@ const http = require('node:http');
 const net = require('node:net');
 const crypto = require('node:crypto');
 const { writeNetworkPrivacy, readNetworkPrivacy } = require('../location-privacy.cjs');
+const appVersion = require('../package.json').version;
 
 // This fixture forwards only to our own loopback HTTP server. No Internet route.
 async function socksFixture(targetPort) {
@@ -52,7 +53,7 @@ async function main() {
     hits.push(request.url);
     if (request.url === '/frame') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Frame</title><p>Subframe fixture</p>'); return; }
     if (request.url === '/worker.js') { response.writeHead(200, { 'Content-Type': 'text/javascript' }); response.end('onmessage=async()=>postMessage(await (await fetch("/worker-fetch")).text())'); return; }
-    if (request.url === '/update-feed') { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ schema: 1, channel: 'preview', version: '1.3.5', installation: 'manual', releaseUrl: 'https://github.com/muradaljohani/Browser/releases/tag/desktop-v1.3.5' })); return; }
+    if (request.url === '/update-feed') { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ schema: 1, channel: 'preview', version: appVersion, installation: 'manual', releaseUrl: 'https://github.com/muradaljohani/Browser/releases/tag/desktop-v' + appVersion })); return; }
     if (request.url === '/download') { response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="routing.txt"' }); response.end('proxy-download'); return; }
     if (request.url === '/redirect') { response.writeHead(302, { location: '/redirected' }); response.end(); return; }
     if (['/worker-fetch', '/probe', '/after-down'].includes(request.url)) { response.end('proxied'); return; }

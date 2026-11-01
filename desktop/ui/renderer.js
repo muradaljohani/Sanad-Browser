@@ -1,7 +1,7 @@
 'use strict';
 const api = window.sanadBrowser;
 const $ = id => document.getElementById(id);
-let state, panelName = '', panelBody, filterInput, lastActiveId, lastTabsKey = '', lastReaderText, lastReaderTitle, lastMenuKey = '', lastPrivacyKey = '', networkPortDraft;
+let state, panelName = '', panelBody, filterInput, lastActiveId, lastReaderText, lastReaderTitle, lastMenuKey = '', lastPrivacyKey = '', networkPortDraft;
 const titles = { menu: 'أدوات المتصفح', tabs: 'التبويبات', bookmarks: 'المفضلة', history: 'السجل على هذا الجهاز', downloads: 'التنزيلات', privacy: 'حماية الخصوصية', reader: 'وضع القراءة', performance: 'أداء الصفحة', about: 'حول Sanad', licenses: 'التراخيص والمصادر المفتوحة' };
 const normalize = value => String(value).normalize('NFKC').replace(/[\u064b-\u065f\u0670\u0640]/g, '').toLowerCase();
 const iconPaths = {
@@ -28,6 +28,7 @@ async function command(action, data = {}) {
   try { const next = await api.command(action, data); if (next) render(next); return next; }
   catch { $('notice').hidden = false; $('notice').textContent = 'تعذر تنفيذ الإجراء. جرّب مرة أخرى.'; }
 }
+const tabStrip = window.SanadTabStrip({ root: $('tabs'), previous: $('tabs-prev'), next: $('tabs-next'), count: $('tab-count'), announcement: $('tab-announcement'), command });
 async function go(url, newTab = false) { closePanel(); if (newTab) await command('new'); await command('navigate', { value: url }); }
 function closePanel() { const wasReader = panelName === 'reader'; panelName = ''; $('panel').close(); void command('overlay', { value: false }); if (wasReader) void command('reader-clear'); }
 function openPanel(name) {
@@ -222,17 +223,7 @@ function render(next) {
   const localDocument = tab.url.startsWith('sanad-licenses://');
   if (tab.private) $('connection').textContent = 'خاص'; else if (localDocument) $('connection').textContent = 'محلي'; else setIcon($('connection'), 'lock'); $('connection').setAttribute('aria-label', tab.private ? 'تبويب خاص' : localDocument ? 'مستند محلي' : 'اتصال مشفر');
   $('notice').textContent = state.notice; $('notice').hidden = !state.notice; $('page-error').textContent = tab.error; $('page-error').hidden = !tab.error;
-  const tabsKey = JSON.stringify([state.activeId, state.tabs.map(item => [item.id, item.title, item.private, item.pinned, item.muted, item.sleeping])]);
-  if (tabsKey !== lastTabsKey) {
-  const fragment = document.createDocumentFragment();
-  for (const item of state.tabs) {
-    const node = element('div', `tab${item.id === state.activeId ? ' active' : ''}${item.pinned ? ' pinned' : ''}`);
-    const select = button('', () => void command('activate', { id: item.id })); select.setAttribute('role', 'tab'); select.setAttribute('aria-selected', String(item.id === state.activeId)); select.title = item.title;
-    if (item.private || item.sleeping || item.pinned || item.muted) select.append(element('small', 'tab-status', `${item.private ? '◈' : ''}${item.sleeping ? '◌' : ''}${item.pinned ? '⌖' : ''}${item.muted ? '♪' : ''}`));
-    select.append(element('span', '', item.title)); node.append(select, tool('×', `إغلاق ${item.title}`, () => void command('close', { id: item.id }))); fragment.append(node);
-  }
-  $('tabs').replaceChildren(fragment); lastTabsKey = tabsKey;
-  }
+  tabStrip.update(state);
   $('new-tab').disabled = state.tabs.length >= 32;
   if (state.found) $('find-count').textContent = `${state.found.current}/${state.found.total}`;
   renderPanel();
@@ -247,8 +238,9 @@ $('find-input').addEventListener('input', () => void command('find', { value: $(
 for (const [id, forward] of [['find-prev', false], ['find-next', true]]) $(id).addEventListener('click', () => void command('find', { value: $('find-input').value, forward, next: true }));
 function closeFind() { $('find-bar').hidden = true; $('find-count').textContent = ''; void command('find-stop'); }
 $('find-close').addEventListener('click', closeFind);
-for (const [id, name] of [['back', 'back'], ['forward', 'forward'], ['home', 'home'], ['downloads-button', 'download'], ['account', 'user'], ['menu-button', 'menu'], ['new-tab', 'plus'], ['tab-search', 'search']]) setIcon($(id), name);
+for (const [id, name] of [['back', 'back'], ['forward', 'forward'], ['home', 'home'], ['downloads-button', 'download'], ['account', 'user'], ['menu-button', 'menu'], ['new-tab', 'plus'], ['tabs-prev', 'back'], ['tabs-next', 'forward']]) setIcon($(id), name);
 setIcon($('protection'), 'shield', false, $('blocked-count'));
+setIcon($('tab-search'), 'search', false, $('tab-count'));
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('find-bar').hidden) { event.preventDefault(); closeFind(); } });
 let lastHeight = 0, resizeFrame = 0;
 new ResizeObserver(entries => { const height = Math.ceil(entries[0].borderBoxSize?.[0]?.blockSize || $('chrome').getBoundingClientRect().height); if (height === lastHeight) return; lastHeight = height; cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(() => void command('toolbar-height', { value: height })); }).observe($('chrome'));

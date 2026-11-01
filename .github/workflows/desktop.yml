@@ -100,6 +100,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: node tests/location-privacy-desktop.test.cjs
+      - name: Verify Windows tab strip interactions and private tab inheritance
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node tests/tab-strip-desktop.test.cjs
       - name: Verify signed Windows package before installation
         if: runner.os == 'Windows' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         shell: pwsh
