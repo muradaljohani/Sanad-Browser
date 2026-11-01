@@ -35,7 +35,7 @@ function openPanel(name) {
     closePanel(); $('find-bar').hidden = false; $('find-input').focus(); $('find-input').select(); return;
   }
   if (!titles[name]) return;
-  if (name === 'privacy') networkPortDraft = String(state.locationPrivacy?.port || 9050);
+  if (name === 'privacy') networkPortDraft = String(state?.locationPrivacy?.port || 9050);
   panelName = name; lastReaderText = lastReaderTitle = undefined; lastMenuKey = ''; $('panel').classList.toggle('reader-panel', name === 'reader'); $('panel-title').textContent = titles[name]; $('panel-content').replaceChildren();
   filterInput = null;
   if (['tabs', 'bookmarks', 'history'].includes(name)) {
