@@ -96,6 +96,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: node tests/encryption-desktop.test.cjs
+      - name: Verify Windows local SOCKS5 routing and outage without direct fallback
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node tests/location-privacy-desktop.test.cjs
       - name: Verify signed Windows package before installation
         if: runner.os == 'Windows' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         shell: pwsh
@@ -200,4 +204,5 @@ jobs:
             exit 0
           fi
           gh release create "$TAG" release-files/* --target "$GITHUB_SHA" --prerelease --title "Sanad Browser $VERSION — Chromium desktop" --notes-file desktop/RELEASE_NOTES.md
+
 

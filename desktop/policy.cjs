@@ -1,5 +1,5 @@
 'use strict';
-const HOME = 'https://sanadbrowser.com/web/?surface=desktop';
+const HOME = 'https://sanadbrowser.com/web/?surface=desktop&safeSearch=strict';
 const MAX_TABS = 32;
 const TRACKING_KEYS = /^(utm_.+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid)$/i;
 function safeURL(value, testMode = false) {
@@ -23,7 +23,7 @@ function resolveDestination(raw, testMode = false) {
     const url = safeURL(`${testMode && text.startsWith('localhost:') ? 'http' : 'https'}://${text}`, testMode);
     return url ? { url } : null;
   }
-  return { url: `https://sanadbrowser.com/web/?${new URLSearchParams({ surface: 'desktop', q: text.slice(0, 300) })}` };
+  return { url: `https://sanadbrowser.com/web/?${new URLSearchParams({ surface: 'desktop', q: text.slice(0, 300), safeSearch: 'strict' })}` };
 }
 function isSearchPage(url) {
   return (url.origin === 'https://sanadbrowser.com' && ['/web', '/web/'].includes(url.pathname)) || (url.origin === 'https://ip-murad.com' && url.pathname === '/browser');
@@ -42,6 +42,7 @@ function nativeSiteURL(raw, isPrivate = false, testMode = false) {
   if (isSearchPage(url)) {
     url.protocol = 'https:'; url.hostname = 'sanadbrowser.com'; url.pathname = '/web/';
     url.searchParams.set('surface', 'desktop');
+    url.searchParams.set('safeSearch', 'strict');
     if (isPrivate) url.searchParams.set('mode', 'private'); else if (url.searchParams.get('mode') === 'private') url.searchParams.delete('mode');
   }
   return url.href;
@@ -68,5 +69,6 @@ function trustedSender(event, contents) {
   return Boolean(contents && !contents.isDestroyed() && event.sender === contents && event.senderFrame === contents.mainFrame && event.senderFrame?.url === 'sanad-app://browser/index.html');
 }
 module.exports = { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender };
+
 
 
