@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
 const { CONFIG_FILE, readNetworkPrivacy, writeNetworkPrivacy, validateConfig, proxyConfig, configureStartupPrivacy, configureSessionPrivacy, hardenWebContents, locationPermissionAllowed } = require('../location-privacy.cjs');
 const enabled = { version: 1, enabled: true, port: 9050 };
 test('only missing routing settings use the ordinary mode; invalid settings fail closed', t => {
@@ -64,4 +65,20 @@ test('geolocation stays denied with previous grants; WebRTC restricts non-proxie
   hardenWebContents({ setWebRTCIPHandlingPolicy: value => { policy = value; } });
   assert.equal(policy, 'disable_non_proxied_udp');
   assert(require('../package.json').build.files.includes('location-privacy.cjs'), 'installed application includes privacy module');
+});
+
+test('the isolated shell bridge forwards the privacy action and rejects unknown commands', async () => {
+  let bridge;
+  const calls = [];
+  vm.runInNewContext(fs.readFileSync(require.resolve('../preload.cjs'), 'utf8'), {
+    require: name => { assert.equal(name, 'electron'); return {
+      contextBridge: { exposeInMainWorld: (_name, value) => { bridge = value; } },
+      ipcRenderer: { invoke: (...args) => { calls.push(args); return Promise.resolve('forwarded'); } },
+    }; },
+  });
+  const data = { enabled: true, port: 9050 };
+  assert.equal(await bridge.command('network-privacy', data), 'forwarded');
+  assert.deepEqual(calls, [['sanad-browser:command', 'network-privacy', data]]);
+  await assert.rejects(bridge.command('execute-raw-script'), /Unknown action/);
+  assert.equal(calls.length, 1);
 });
