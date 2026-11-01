@@ -7,7 +7,7 @@ const os = require('node:os');
 const http = require('node:http');
 const net = require('node:net');
 const crypto = require('node:crypto');
-const { writeNetworkPrivacy } = require('../location-privacy.cjs');
+const { writeNetworkPrivacy, readNetworkPrivacy } = require('../location-privacy.cjs');
 
 // This fixture forwards only to our own loopback HTTP server. No Internet route.
 async function socksFixture(targetPort) {
@@ -132,7 +132,24 @@ async function main() {
     await shell.waitForFunction(async () => Boolean((await window.sanadBrowser.command('state')).tabs[0]?.error));
     assert.equal((await shell.evaluate(() => window.sanadBrowser.command('state'))).locationPrivacy.enabled, true);
     assert.equal(hits.length, before);
-    console.log(JSON.stringify({ ok: true, checks: ['geolocation-denied-and-subframe', 'no-ordinary-cookies', 'regular-private-popup-routing', 'remote-DNS-name', 'worker-subframe-websocket-redirect-download', 'update-via-default-session', 'WebRTC-policy', 'proxy-outage-no-direct-fallback', 'restart-already-offline'] }));
+    // Capture relaunch options without spawning an unmanaged second application.
+    await app.evaluate(({ app, dialog }) => {
+      app.__testQuit = app.quit.bind(app); app.quit = () => {};
+      app.relaunch = options => { app.__testRelaunch = options; };
+      dialog.showMessageBox = async () => ({ response: 1 });
+    });
+    await shell.getByRole('button', { name: 'حماية الخصوصية', exact: true }).click();
+    await shell.getByRole('button', { name: 'إيقاف وضع الوسيط وإعادة التشغيل', exact: true }).click();
+    await shell.waitForFunction(async () => (await window.sanadBrowser.command('state')).tabs.length === 0);
+    const restart = await app.evaluate(({ app }) => app.__testRelaunch);
+    assert(Array.isArray(restart.args));
+    assert(!restart.args.some(arg => /^--(?:proxy-server|proxy-bypass-list|host-resolver-rules|disable-quic)(?:=|$)/.test(arg)), 'runtime switches are absent from the relaunch command');
+    assert.equal(readNetworkPrivacy(profile).enabled, false);
+    await app.evaluate(({ app }) => { app.quit = app.__testQuit; }); await app.close(); app = undefined;
+    const ordinary = await launch();
+    assert.equal((await ordinary.cmd('state')).locationPrivacy.enabled, false);
+    assert(hits.length > before, 'ordinary browsing works again after disabling the mode');
+    console.log(JSON.stringify({ ok: true, checks: ['geolocation-denied-and-subframe', 'no-ordinary-cookies', 'regular-private-popup-routing', 'remote-DNS-name', 'worker-subframe-websocket-redirect-download', 'update-via-default-session', 'WebRTC-policy', 'proxy-outage-no-direct-fallback', 'restart-already-offline', 'disable-mode-original-arguments'] }));
   } finally {
     if (app) await app.close(); if (proxy) await proxy.stop();
     for (const socket of targetSockets) socket.destroy();
