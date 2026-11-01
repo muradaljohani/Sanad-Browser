@@ -1,3 +1,8 @@
+# 1.4.1
+
+- Starts account sync automatically after the disclosed Google sign-in flow; optional history is selected before sign-in. No second activation button is required.
+- Restores supported Sanad data from the cloud on each device; Google sign-in does not expose private Chrome Sync APIs.
+
 # 1.4.0 — Google account, cloud sync and Chrome import
 
 - Sign in through the existing Google/Firebase configuration at ip-murad.com in the system browser. Return using a short-lived one-use code, S256 PKCE and local state validation; Google tokens and email are never placed in the callback URL.

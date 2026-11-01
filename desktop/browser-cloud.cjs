@@ -12,12 +12,12 @@ async function createNativeAccount({store,session,readSnapshot,applyRemote,onSta
  const engine=createBrowserSync({readAuth:()=>store.state.sync,writeAuth:auth=>{if(auth)store.state.sync=auth;else delete store.state.sync;store.persist();},readSnapshot,applyRemote,onStatus,fetchImpl,canSync:()=>!isPrivate()});
  const status=()=>({...engine.status(),profiles,importBusy:busy,preview:preview?{id:preview.id,counts:{bookmarks:preview.data.bookmarks.length,history:preview.data.history.length,tabs:preview.data.tabs.length,settings:Object.keys(preview.data.settings).length},warnings:preview.data.warnings||[]}:null,protectedStorage:store.storageProtection.status==='encrypted'});
  async function handleURL(raw){const callback=parseAuthCallback(raw);if(store.storageProtection.status!=='encrypted'||!callback||exchanging||!store.state.syncPending||callback.state!==store.state.syncPending.state)return false;exchanging=true;
- try{const auth=await exchangeGoogleCode(callback,store.state.syncPending,fetchImpl);store.state.sync=auth;delete store.state.syncPending;await store.flush();engine.start();showPanel('sync');notify('تم تسجيل الدخول عبر Google. اختر البيانات لبدء المزامنة.');return true;}catch{notify('تعذر إكمال تسجيل الدخول أو انتهت صلاحية رابط العودة. أعد المحاولة من زر Google.');return false;}finally{exchanging=false;onStatus();}}
+ try{const auth=await exchangeGoogleCode(callback,store.state.syncPending,fetchImpl);store.state.sync=auth;delete store.state.syncPending;await store.flush();const started=engine.start();showPanel('sync');await started;if(engine.status().phase==='ready')notify('تم تسجيل الدخول ومزامنة بيانات سَنَد الحرمين تلقائياً.');return true;}catch{notify('تعذر إكمال تسجيل الدخول أو انتهت صلاحية رابط العودة. أعد المحاولة من زر Google.');return false;}finally{exchanging=false;onStatus();}}
  async function run(action,data={}){
  if(action==='sync-sign-in'){
   if(store.storageProtection.status!=='encrypted'||store.storageProtection.readOnly)throw Error('يلزم تفعيل التخزين المشفر في النظام قبل حفظ جلسة المزامنة.');
   if(proxyEnabled())throw Error('تسجيل الدخول يفتح متصفح النظام خارج مسار الوسيط. أوقف وضع الوسيط من خيارات الاتصال قبل بدء هذا الإجراء.');
-  const pending=await pendingGoogleLogin(store.state.sync?.deviceId);store.state.syncPending=pending;await store.flush();await openExternal(googleLoginURL(pending,'desktop'));return;
+  const pending=await pendingGoogleLogin(store.state.sync?.deviceId,{syncOnSignIn:true,includeHistory:data.history===true});store.state.syncPending=pending;await store.flush();await openExternal(googleLoginURL(pending,'desktop'));return;
  }
  if(action==='sync-enable'){await engine.enable(data.history===true);return;}
  if(action==='sync-now'){await engine.syncNow();return;}

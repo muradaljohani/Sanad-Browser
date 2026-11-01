@@ -1,7 +1,7 @@
 import { normalizeSyncSnapshot,snapshotDiff,applySyncBatch,snapshotFromDocument } from './browser-sync-model.mjs';
 import { accountRequest } from './browser-account-client.mjs';
 // Credentials stay in the caller's protected store; status() never exposes them.
-export function createBrowserSync({readAuth,writeAuth,readSnapshot,applyRemote,onStatus=(_status)=>{},fetchImpl=fetch,canSync=()=>true}){
+export function createBrowserSync({readAuth,writeAuth,readSnapshot,applyRemote,onStatus=(_status)=>{},fetchImpl=fetch,canSync=()=>true,eventTarget=typeof window==='undefined'?null:window}){
  let running=false,stopped=false,initializing=false,hasRestored=false,timer,interval,phase='signed-out',lastSync=0,error='';
  const persist=auth=>{writeAuth(auth);};
  const update=(next,message='')=>{phase=next;error=message;onStatus(status());};
@@ -34,9 +34,11 @@ export function createBrowserSync({readAuth,writeAuth,readSnapshot,applyRemote,o
  if(current()){lastSync=Date.now();update('ready');}
  }catch(failure){if(!current())return;initializing=false;if(failure.status===401){const auth=readAuth();if(auth){delete auth.token;auth.enabled=false;persist(auth);}update('expired','session_expired');}else update('error',failure.message||'sync_unavailable');}
  finally{running=false;initializing=false;}}
- function start(){stopped=false;clearInterval(interval);interval=setInterval(()=>void syncNow(),30000);return syncNow();}
+ const available=()=>{void syncNow();};
+ function unlisten(){eventTarget?.removeEventListener('online',available);eventTarget?.removeEventListener('focus',available);}
+ function start(){stopped=false;clearInterval(interval);unlisten();eventTarget?.addEventListener('online',available);eventTarget?.addEventListener('focus',available);interval=setInterval(()=>void syncNow(),30000);return syncNow();}
  async function enable(includeHistory=false){const auth=readAuth();if(!auth?.token)return;auth.enabled=true;auth.includeHistory=includeHistory===true;persist(auth);return start();}
- async function signOut(){const auth=readAuth();stopped=true;clearInterval(interval);clearTimeout(timer);if(auth?.token)await accountRequest('logout',{token:auth.token,body:{},fetchImpl}).catch(()=>{});writeAuth(null);update('signed-out');}
- function stop(){stopped=true;clearInterval(interval);clearTimeout(timer);}
+ async function signOut(){const auth=readAuth();stopped=true;unlisten();clearInterval(interval);clearTimeout(timer);if(auth?.token)await accountRequest('logout',{token:auth.token,body:{},fetchImpl}).catch(()=>{});writeAuth(null);update('signed-out');}
+ function stop(){stopped=true;unlisten();clearInterval(interval);clearTimeout(timer);}
  return {start,stop,changed,syncNow,enable,signOut,status};
 }

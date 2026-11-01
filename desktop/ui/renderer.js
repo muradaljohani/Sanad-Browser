@@ -267,3 +267,6 @@ new ResizeObserver(entries => { const height = Math.ceil(entries[0].borderBoxSiz
 api.onState(render); api.onFocusAddress(() => { closePanel(); $('address').focus(); $('address').select(); }); api.onOpenPanel(openPanel);
 void command('state');
 
+
+// The trusted shell resumes queued sync after OS network recovery.
+window.addEventListener('online', () => void command('sync-now'));
