@@ -1,3 +1,10 @@
+# 1.3.8 — Shared Chromium-style settings
+
+- Use the same settings component and stylesheet as the web version, with top search, sidebar sections, content cards and mobile navigation.
+- Expand the desktop settings panel to fit the shared layout.
+- Keep the grouped Chromium-style tools menu and all native actions.
+- The new web page fixes empty-input history suggestions and mobile keyboard dismissal.
+
 # 1.3.7 — Fluent tabs, shared settings and the new start page
 
 - Refine tabs with connected active-tab curves, clear close targets, compact pinned tabs, and a rounded address bar.

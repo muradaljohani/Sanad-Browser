@@ -1,6 +1,6 @@
 {
   "repository": "muradaljohani/MURAD4321",
-  "commit": "15c00eec738dd4d560c6b5a2ad5dbb8e65acffde",
+  "commit": "9e225df9fc93ca778d7062a98f857e94301ddeab",
   "component": "src/components/browser/components/BrowserSettings.tsx",
   "dependencies": {
     "react": "19.2.7",
@@ -9,7 +9,7 @@
   },
   "license": "MIT; React MIT; Lucide ISC",
   "sha256": {
-    "settings.js": "606dd3cc46f5bdf37ea6237d7ae69fa911d08450d5e572de500d5866365f8a86",
-    "settings.css": "111979d9f8803393489b9545bea10e6ac45790371bc99b2b49c238df18238976"
+    "settings.js": "d79d261d5a96707cc5ff3f7749720c80340c81d96ae6aad8973fbc7387b9b80a",
+    "settings.css": "347ce7d9a551197ad94cd6bf43c4bc63cf47c295e10be9d39c62ab0d38131b42"
   }
 }
