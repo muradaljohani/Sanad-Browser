@@ -1,0 +1,15 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {createNativeAccount}=require('../browser-cloud.cjs');
+const identity={uid:'google-native-fixture',email:'owner@workspace.example',name:'Owner',provider:'google.com'};
+function fixture({encrypted=true,proxy=false}={}){const store={state:{},storageProtection:{status:encrypted?'encrypted':'unavailable',readOnly:false},persist(){},async flush(){this.flushed=true;}},external=[],panels=[],requests=[];
+ const session={async fetch(url,options){requests.push({url,options});const body=JSON.parse(options.body);assert.ok(store.flushed);assert.equal(body.state,store.state.syncPending.state);assert.equal(body.verifier,store.state.syncPending.verifier);return Response.json({token:'sanad_'+'a'.repeat(43),identity,expiresAt:Date.now()+100000});}};
+ return {store,external,panels,requests,options:{store,session,readSnapshot:()=>({}),applyRemote:()=>{},onStatus:()=>{},openExternal:url=>external.push(url),showPanel:name=>panels.push(name),notify:()=>{},isPrivate:()=>false,proxyEnabled:()=>proxy,dialog:{},window:()=>null}};
+}
+test('native Google handoff persists proof first, rejects foreign callbacks and never exposes bearer state',async()=>{const f=fixture(),account=await createNativeAccount(f.options);try{
+ await account.run('sync-sign-in');assert.equal(f.external.length,1);const url=new URL(f.external[0]);assert.equal(url.hostname,'ip-murad.com');assert.equal(url.pathname,'/auth/google');assert.equal(url.searchParams.get('client'),'desktop');assert.ok(!url.href.includes(f.store.state.syncPending.verifier));
+ assert.equal(await account.handleURL('sanad://auth-callback?code='+'c'.repeat(43)+'&state='+'x'.repeat(43)),false);assert.equal(f.requests.length,0);
+ assert.equal(await account.handleURL('sanad://auth-callback?code='+'c'.repeat(43)+'&state='+url.searchParams.get('state')),true);assert.deepEqual(f.panels,['sync']);assert.equal(account.status().identity.email,identity.email);assert.equal(account.status().signedIn,true);assert.equal(account.status().enabled,false);assert.ok(!JSON.stringify(account.status()).includes(f.store.state.sync.token));assert.ok(!JSON.stringify(account.status()).includes('verifier'));
+ assert.equal(await account.handleURL('sanad://auth-callback?code='+'c'.repeat(43)+'&state='+url.searchParams.get('state')),false);assert.equal(f.requests.length,1);
+ }finally{account.stop();}});
+test('account login cannot persist credentials in plaintext fallback or bypass proxy-mode protection',async()=>{for(const config of [{encrypted:false},{proxy:true}]){const f=fixture(config),account=await createNativeAccount(f.options);try{await assert.rejects(account.run('sync-sign-in'));assert.equal(f.external.length,0);assert.equal(f.requests.length,0);}finally{account.stop();}}});

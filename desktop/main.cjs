@@ -12,6 +12,9 @@ const { normalizeSearchPreferences, officialSearchPage, searchPreferenceScript }
 const { readNetworkPrivacy, writeNetworkPrivacy, configureStartupPrivacy, configureSessionPrivacy, hardenWebContents, locationPermissionAllowed, validateConfig } = require('./location-privacy.cjs');
 const { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender } = require('./policy.cjs');
 const { openEncryptedStore } = require('./store.cjs');
+const { createNativeAccount } = require('./browser-cloud.cjs');
+const { parseAuthCallback } = require('./browser-account-state.cjs');
+const { MAX_STATE_BYTES } = require('./state-encryption.cjs');
 const { createProtection } = require('./protection.cjs');
 const { pageActions } = require('./page-actions.cjs');
 const { createUpdateChecker, UPDATE_FEED } = require('./updates.cjs');
@@ -39,7 +42,14 @@ app.on('web-contents-created', (_event, wc) => hardenWebContents(wc));
 // Set the global default before creating any sessions, windows or popups.
 app.userAgentFallback = brandedUserAgent(app.userAgentFallback, app.getVersion());
 protocol.registerSchemesAsPrivileged([{ scheme: 'sanad-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }, { scheme: 'sanad-licenses', privileges: { standard: true, secure: true } }]);
-let win, store, protection, regularSession, privateSession, updates;
+let win, store, protection, regularSession, privateSession, updates, browserAccount;
+const pendingAuthURLs=[];
+const primaryInstance=app.requestSingleInstanceLock();
+if(!primaryInstance)app.quit();
+const receiveAuthURL=raw=>{if(!parseAuthCallback(raw))return;if(browserAccount)void browserAccount.handleURL(raw);else pendingAuthURLs.push(raw);};
+app.on('open-url',(event,url)=>{event.preventDefault();receiveAuthURL(url);});
+app.on('second-instance',(_event,argv)=>{for(const arg of argv)receiveAuthURL(arg);if(win){if(win.isMinimized())win.restore();win.focus();}});
+for(const arg of process.argv)if(parseAuthCallback(arg))pendingAuthURLs.push(arg);
 const licenceNotices = fs.readFileSync(path.join(__dirname, 'LICENSE'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'THIRD_PARTY_NOTICES.md'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'ui/settings/THIRD_PARTY_LICENSES.txt'), 'utf8');
 let activeId, toolbarHeight = 100, overlay = false, overlayGeneration = 0, notice = '';
 let updatingProtection = false, shuttingDown = false;
@@ -50,6 +60,7 @@ const preparedSessions = new Set();
 const sessionSetup = new WeakMap();
 const localFiles = new Map([
   ['/index.html', ['ui/index.html', 'text/html; charset=utf-8']],
+  ['/account-panel.js', ['ui/account-panel.js', 'text/javascript; charset=utf-8']],
   ['/renderer.js', ['ui/renderer.js', 'text/javascript; charset=utf-8']],
   ['/tab-strip.js', ['ui/tab-strip.js', 'text/javascript; charset=utf-8']],
   ['/browser-menu.js', ['ui/browser-menu.js', 'text/javascript; charset=utf-8']],
@@ -73,10 +84,12 @@ function snapshot() {
     versions: { chromium: process.versions.chrome, electron: process.versions.electron, app: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, distribution: storeDistribution ? 'microsoft-store' : 'direct' },
     updates: updates?.snapshot(), storageProtection: store.storageProtection, licenceNotices,
     locationPrivacy: { enabled: networkPrivacy.enabled, port: networkPrivacy.port, routing: networkPrivacy.enabled ? 'configured-unverified' : 'system', geolocation: 'blocked' },
+    sync: browserAccount?.status() || {phase:'signed-out',identity:null,signedIn:false,enabled:false,profiles:[]},
     searchPolicy: { level: 'strict', locked: true }
   };
 }
 function publish() {
+  browserAccount?.changed();
   if (publishTimer || shuttingDown) return;
   publishTimer = setTimeout(() => { publishTimer = null; if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('sanad-browser:state', snapshot()); }, 50);
 }
@@ -238,7 +251,7 @@ function attachView(tab, inheritedContents) {
     const menu = pageActions(params, { open: (url, privateMode, background = false) => { if (!valid()) return; const next = createTab(url, tab.private || privateMode, !background); if (next) { next.openerId = tab.id; if (background) void loadTabURL(next, next.url); } }, copy: text => { if (valid()) clipboard.writeText(text); }, run: action => { if (valid()) void command(action, {}).catch(() => message('تعذر تنفيذ الإجراء.')); } }, testMode);
     Menu.buildFromTemplate(menu).popup({ window: win, ...(params.frame ? { frame: params.frame } : {}) });
   });
-  for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; if (event === 'will-navigate' && e.isMainFrame !== false && tab.id === activeId && officialSearchPage(wc.getURL()) && officialSearchPage(target) && new URL(target).searchParams.get('panel') === 'native-settings') { e.preventDefault(); openPanel('settings'); return; } const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void loadTabURL(tab, normalized); } });
+  for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; if (event === 'will-navigate' && e.isMainFrame !== false && tab.id === activeId && officialSearchPage(wc.getURL()) && officialSearchPage(target) && ['native-settings','native-sync'].includes(new URL(target).searchParams.get('panel'))) { e.preventDefault(); openPanel(new URL(target).searchParams.get('panel')==='native-sync'?'sync':'settings'); return; } const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void loadTabURL(tab, normalized); } });
   wc.setWindowOpenHandler(details => {
     if (!safeURL(details.url, testMode) && details.url !== 'about:blank') { message('هذا النوع من الروابط غير مدعوم داخل المتصفح.'); return { action: 'deny' }; }
     if (tabs.length >= MAX_TABS) { message('وصلت إلى 32 تبويبًا. أغلق تبويبًا قبل فتح آخر.'); return { action: 'deny' }; }
@@ -490,7 +503,8 @@ async function command(action, data) {
     case 'devtools': wc?.openDevTools({ mode: 'detach' }); break;
     case 'fullscreen': win.setFullScreen(!win.isFullScreen()); break;
     case 'copy-link': { const url = cleanURL(tab?.url); if (url) { clipboard.writeText(url); message('نُسخ الرابط دون معاملات التتبع.'); } break; }
-    case 'account': createTab('https://ip-murad.com/profile/studio'); break;
+    case 'account': openPanel('sync'); break;
+    case 'sync-sign-in': case 'sync-enable': case 'sync-now': case 'sync-sign-out': case 'chrome-profiles': case 'chrome-preview': case 'chrome-file-import': case 'chrome-import': await browserAccount.run(action,data); break;
     case 'updates-check': if (!data.automatic || (app.isPackaged && !tab?.private)) await updates.check({ automatic: data.automatic === true }); break;
     case 'updates-open': { if (storeDistribution) { if (networkPrivacy.enabled) { message('Microsoft Store تطبيق خارجي لا يشمله مسار الوسيط. أوقف وضع الوسيط قبل فتح تحديثات المتجر من هنا.'); break; } await shell.openExternal(STORE_UPDATES_URI); break; } const release = updates.snapshot(); if (release.releaseUrl && ['available', 'current', 'ahead'].includes(release.status)) createTab(release.releaseUrl, tab?.private); break; }
     case 'about-copy': clipboard.writeText(`Sanad Browser ${app.getVersion()} (${process.platform} ${process.arch})\nChromium ${process.versions.chrome}\nElectron ${process.versions.electron}\n${storeDistribution ? 'Microsoft Store · Store-managed updates' : 'Preview channel · manual installation'}`); message('نُسخت معلومات الإصدار.'); break;
@@ -499,9 +513,25 @@ async function command(action, data) {
   }
   publish(); return snapshot();
 }
+async function applyCloudSnapshot({snapshot:incoming,restore,restoreDocument,includeHistory,importing=false}) {
+  if(store.storageProtection.readOnly)throw Error('التخزين المحلي محمي من الكتابة.');
+  const beforeCounts={bookmarks:store.state.bookmarks.length,history:store.state.history.length,tabs:tabs.length};
+  const mergedBookmarks=importing?[...store.state.bookmarks,...incoming.bookmarks]:incoming.bookmarks;
+  const nextBookmarks=sanitizeBookmarks(mergedBookmarks);
+  const nextHistory=includeHistory?(importing?[...incoming.history,...store.state.history]:incoming.history).filter((item,index,all)=>safeURL(item.url)&&mayRemember(item.url)&&all.findIndex(other=>other.url===item.url)===index).sort((a,b)=>b.timestamp-a.timestamp).slice(0,200):store.state.history;
+  const nextSearch=normalizeSearchPreferences({...store.state.preferences.search,theme:store.state.preferences.theme,...incoming.settings,safeSearch:'strict'});
+  const {theme,...search}=nextSearch;const nextPreferences={...store.state.preferences,theme,search};
+  if(Buffer.byteLength(JSON.stringify({...store.state,bookmarks:nextBookmarks,history:nextHistory,preferences:nextPreferences}))>MAX_STATE_BYTES)throw Error('حجم البيانات المختارة يتجاوز سعة الملف المحلي. اختر مجموعة أصغر.');
+  store.state.bookmarks=nextBookmarks;store.state.history=nextHistory;store.state.preferences=nextPreferences;nativeTheme.themeSource=theme;store.persist();syncAllSearchPages();
+  if(restore){const source=Object.values(restoreDocument?.tabs||{}).sort((a,b)=>b.updated-a.updated)[0];const known=new Set(tabs.filter(tab=>!tab.private).map(tab=>tab.url));
+    for(const item of source?.entries||[]){if(tabs.length>=MAX_TABS)break;const url=safeURL(item.url);if(!url||!mayRemember(url)||known.has(url))continue;known.add(url);const next=createTab(url,false,false);if(next){next.title=String(item.title||url).slice(0,200);next.pinned=item.pinned===true;destroyView(next);}}
+  }
+  publish();
+  return {bookmarks:Math.max(0,nextBookmarks.length-beforeCounts.bookmarks),history:Math.max(0,nextHistory.length-beforeCounts.history),tabs:Math.max(0,tabs.length-beforeCounts.tabs),settings:Object.keys(incoming.settings||{}).length};
+}
 async function shutdown() {
   if (shuttingDown) return;
-  shuttingDown = true; clearTimeout(publishTimer);
+  shuttingDown = true; browserAccount?.stop(); clearTimeout(publishTimer);
   for (const tab of tabs) destroyView(tab);
   tabs.length = 0;
   try { await store?.flush(); } catch { /* Preserve the last committed snapshot. */ }
@@ -519,6 +549,8 @@ async function createWindow() {
   createTab(homeURL);
 }
 app.whenReady().then(async () => {
+  if(!primaryInstance)return;
+  if(!process.windowsStore){if(process.defaultApp&&process.argv[1])app.setAsDefaultProtocolClient('sanad',process.execPath,[path.resolve(process.argv[1])]);else app.setAsDefaultProtocolClient('sanad');}
   if (privacyStartupError) { dialog.showErrorBox('تعذر فتح إعدادات حماية الاتصال', privacyStartupError.message); throw privacyStartupError; }
   if (networkPrivacy.enabled) app.configureHostResolver({ secureDnsMode: 'off', enableBuiltInResolver: false, enableAdditionalDnsQueryTypes: false });
   store = await openEncryptedStore(app.getPath('userData'), { safeStorage, onError: () => message('تعذّر فتح البيانات المحمية أو حفظها. بقي الملف الأصلي محفوظًا؛ راجع حالة حماية البيانات في «حول Sanad».') });
@@ -542,6 +574,9 @@ app.whenReady().then(async () => {
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'سَنَد', submenu: [{ label: 'تبويب جديد', accelerator: 'CmdOrCtrl+T', click: () => { createTab(homeURL, Boolean(active()?.private)); focusAddress(); } }, { label: 'بحث دون حفظ السجل', accelerator: 'CmdOrCtrl+Shift+N', click: () => { createTab(homeURL, true); focusAddress(); } }, { label: 'استعادة التبويب', accelerator: 'CmdOrCtrl+Shift+T', click: restoreTab }, { type: 'separator' }, { role: 'quit' }] }]));
   await createWindow();
+  browserAccount=await createNativeAccount({store,session:regularSession,readSnapshot:()=>({bookmarks:store.state.bookmarks,history:store.state.history,settings:{...store.state.preferences.search,theme:store.state.preferences.theme},tabs:tabs.filter(tab=>!tab.private).map(tab=>({url:tab.url,title:tab.title,pinned:tab.pinned}))}),
+    applyRemote:applyCloudSnapshot,onStatus:publish,openExternal:url=>shell.openExternal(url),showPanel:openPanel,notify:message,isPrivate:()=>Boolean(active()?.private),proxyEnabled:()=>networkPrivacy.enabled,dialog,window:()=>win});
+  browserAccount.start();for(const url of pendingAuthURLs.splice(0))void browserAccount.handleURL(url);publish();
 }).catch(error => { console.error(error.message); app.quit(); });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => { if (!shuttingDown && store) { event.preventDefault(); void shutdown(); } });

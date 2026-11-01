@@ -127,3 +127,12 @@
 .tab.dragging{opacity:1;z-index:10;will-change:transform;box-shadow:0 6px 16px #0004;cursor:grabbing;transition:none}
 .pointer-dragging,.pointer-dragging *{cursor:grabbing!important}.tab-select{touch-action:none}
 @media(pointer:coarse){.browser-menu-item{min-height:44px}.tab-row{height:48px}#tabs{height:43px}.tab{height:41px}.tab>button.tab-select{height:40px}}
+
+#panel .sync-identity{display:flex;flex-direction:column;gap:5px;padding:16px;border:1px solid var(--line);border-radius:12px;margin-block:12px}
+#panel .sync-primary{min-height:44px;padding:10px 18px;border-radius:24px;color:var(--text);background:var(--selected);border:1px solid var(--line);margin-block:8px}
+#panel .sync-check{display:flex;align-items:center;gap:8px;margin-block:10px;font-size:13px}
+#panel .sync-consent,#panel .sync-preview{padding:12px;border:1px solid var(--line);border-radius:12px;margin-block:12px}
+#panel .sync-choices{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+#panel .sync-check input{width:18px;height:18px;min-height:18px}
+#panel [hidden]{display:none!important}
+#panel .sync-consent select,#panel .actions select{max-width:100%;min-height:40px;padding:8px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px}
