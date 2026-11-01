@@ -129,8 +129,17 @@ public static class SanadPackageActivation {
     # Chromium does not expose InvokePattern for every dialog control.
     # Click the actual accessibility-provided point instead of synthesizing
     # app state or assuming screen coordinates.
-    $point = $button.GetClickablePoint()
-    [SanadPackageActivation]::Click([int]$point.X, [int]$point.Y)
+    $scrollItem = $null
+    if ($button.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scrollItem)) { $scrollItem.ScrollIntoView() }
+    try {
+      $point = $button.GetClickablePoint()
+      [SanadPackageActivation]::Click([int]$point.X, [int]$point.Y)
+    } catch {
+      $invoke = $null
+      if ($button.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) { $invoke.Invoke() }
+      elseif ($button.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$invoke)) { $invoke.Expand() }
+      else { throw }
+    }
     Start-Sleep -Milliseconds 250
   }
   function Save-StoreScreenshot([string]$Name) {
@@ -144,10 +153,8 @@ public static class SanadPackageActivation {
     try { $graphics.CopyFromScreen($capture.X,$capture.Y,0,0,$bitmap.Size); $bitmap.Save((Join-Path $proof $Name),[System.Drawing.Imaging.ImageFormat]::Png) }
     finally { $graphics.Dispose(); $bitmap.Dispose() }
   }
-  $menu = Find-Control 'أدوات المتصفح'
-  $menu.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-  $about = Find-Control 'حول Sanad'
-  $about.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+  Click-Control 'أدوات المتصفح'
+  Click-Control 'حول Sanad'
   $null = Find-Control ("الإصدار $($package.version) · Microsoft Store")
   $null = Find-Control 'تُدار التحديثات بواسطة Microsoft Store'
   $null = Find-Control 'فتح تحديثات Microsoft Store'
@@ -162,6 +169,7 @@ public static class SanadPackageActivation {
   Save-StoreScreenshot 'store-privacy.png'
   Click-Control 'إغلاق'
   Click-Control 'أدوات المتصفح'
+  Click-Control 'الحفظ والمشاركة'
   $null = Find-Control 'حفظ الصفحة PDF'
   Save-StoreScreenshot 'store-tools.png'
   Click-Control 'إغلاق'
@@ -188,3 +196,4 @@ public static class SanadPackageActivation {
     Remove-Item -LiteralPath $work -Recurse -Force
   }
 }
+

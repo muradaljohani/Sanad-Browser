@@ -2,11 +2,11 @@
 const { isYouTube } = require('./youtube-guard.cjs');
 const { youtubeDataScript } = require('./youtube-data.cjs');
 /** Main-process-only transport for one fixed, packaged script. No port or page bindings. */
-function createYouTubeInjection(wc, initialEnabled, inherited = false) {
-  let desired = initialEnabled === true, installed = false, identifier, owned = false, detached = false;
+function createYouTubeInjection(wc, initialEnabled, inherited = false, identity) {
+  let desired = initialEnabled === true, installed = false, identifier, owned = false, detached = false, branded = false;
   const update = async () => {
     if (wc.isDestroyed() || detached) return false;
-    if (!desired && !owned) return true;
+    if (!desired && !owned && !identity) return true;
     try {
       if (!owned) {
         if (wc.debugger.isAttached() || wc.isDevToolsOpened()) return false;
@@ -14,6 +14,7 @@ function createYouTubeInjection(wc, initialEnabled, inherited = false) {
         wc.debugger.once('detach', () => { detached = true; owned = false; identifier = undefined; installed = false; });
         await wc.debugger.sendCommand('Page.enable');
       }
+      if (identity && !branded) { await wc.debugger.sendCommand('Emulation.setUserAgentOverride', identity); branded = true; }
       if (desired !== installed) {
         if (identifier) { await wc.debugger.sendCommand('Page.removeScriptToEvaluateOnNewDocument', { identifier }); identifier = undefined; installed = false; }
         if (desired) {
@@ -49,3 +50,4 @@ function createYouTubeInjection(wc, initialEnabled, inherited = false) {
   };
 }
 module.exports = { createYouTubeInjection };
+

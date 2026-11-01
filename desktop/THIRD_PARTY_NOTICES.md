@@ -1,5 +1,7 @@
 # Third-party notices
 
+The bundled shared settings UI uses the same BrowserSettings component as Sanad's web application. It includes React and React DOM 19.2.7 (MIT) and Lucide React 0.546.0 (ISC and upstream notices). Exact dependency versions, source commit and bundle SHA-256 values are recorded in `ui/settings/SOURCES.json`; complete license texts are preserved in `ui/settings/THIRD_PARTY_LICENSES.txt`. No remote script is loaded into the privileged shell.
+
 Sanad desktop's original application code and English wordmark are licensed under MIT (see LICENSE). Dependencies retain their original licences.
 
 - Electron 45.1.0: MIT. https://github.com/electron/electron/tree/v45.1.0 . The distribution includes LICENSE.electron.txt and LICENSES.chromium.html; keep these files with the application.
@@ -15,5 +17,6 @@ Brave, Ungoogled Chromium and Min were consulted as architectural references. Th
 ## Bundled filter lists
 
 EasyList and EasyPrivacy are obtained from their maintainers at https://easylist.to/. The full list text, including its original copyright/license notices, and a SOURCES.json with exact versions and SHA-256 values are included under assets/filters in each built application. Compiled network/CSS snapshots use the pinned Ghostery engine. The application does not enable downloaded scriptlets or CSP-modifying filters. The original lists and problem-reporting instructions are available at https://easylist.to/.
+
 
 

@@ -4,8 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { readBoundedText } = require('./bounded-file.cjs');
-const { brandedUserAgent } = require('./user-agent.cjs');
+const { brandedUserAgent, userAgentOverride } = require('./user-agent.cjs');
+const { configureEnginePerformance } = require('./engine-performance.cjs');
+const { faviconAsset, omniboxSuggestions } = require('./network-assets.cjs');
 const { moveTabBefore } = require('./tab-order.cjs');
+const { normalizeSearchPreferences, officialSearchPage, searchPreferenceScript } = require('./search-preferences.cjs');
 const { readNetworkPrivacy, writeNetworkPrivacy, configureStartupPrivacy, configureSessionPrivacy, hardenWebContents, locationPermissionAllowed, validateConfig } = require('./location-privacy.cjs');
 const { HOME, MAX_TABS, safeURL, resolveDestination, cleanURL, nativeSiteURL, mayRemember, sanitizeBookmarks, trustedSender } = require('./policy.cjs');
 const { openEncryptedStore } = require('./store.cjs');
@@ -30,23 +33,29 @@ const relaunchArgs = process.argv.slice(1);
 let networkPrivacy, privacyStartupError;
 try { networkPrivacy = readNetworkPrivacy(app.getPath('userData')); }
 catch (error) { privacyStartupError = error; networkPrivacy = { version: 1, enabled: true, port: 1024 }; }
+configureEnginePerformance(app.commandLine, networkPrivacy);
 configureStartupPrivacy(app.commandLine, networkPrivacy);
 app.on('web-contents-created', (_event, wc) => hardenWebContents(wc));
 // Set the global default before creating any sessions, windows or popups.
 app.userAgentFallback = brandedUserAgent(app.userAgentFallback, app.getVersion());
 protocol.registerSchemesAsPrivileged([{ scheme: 'sanad-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }, { scheme: 'sanad-licenses', privileges: { standard: true, secure: true } }]);
 let win, store, protection, regularSession, privateSession, updates;
-const licenceNotices = fs.readFileSync(path.join(__dirname, 'LICENSE'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'THIRD_PARTY_NOTICES.md'), 'utf8');
-let activeId, toolbarHeight = 100, overlay = false, notice = '';
+const licenceNotices = fs.readFileSync(path.join(__dirname, 'LICENSE'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'THIRD_PARTY_NOTICES.md'), 'utf8') + '\n\n' + fs.readFileSync(path.join(__dirname, 'ui/settings/THIRD_PARTY_LICENSES.txt'), 'utf8');
+let activeId, toolbarHeight = 100, overlay = false, overlayGeneration = 0, notice = '';
 let updatingProtection = false, shuttingDown = false;
-let publishTimer;
+let publishTimer, omniboxRequest;
 const tabs = [], closedTabs = [], downloads = new Map(), permissionGrants = new Map();
+const tabIcons = new Map();
 const preparedSessions = new Set();
 const sessionSetup = new WeakMap();
 const localFiles = new Map([
   ['/index.html', ['ui/index.html', 'text/html; charset=utf-8']],
   ['/renderer.js', ['ui/renderer.js', 'text/javascript; charset=utf-8']],
   ['/tab-strip.js', ['ui/tab-strip.js', 'text/javascript; charset=utf-8']],
+  ['/browser-menu.js', ['ui/browser-menu.js', 'text/javascript; charset=utf-8']],
+  ['/omnibox.js', ['ui/omnibox.js', 'text/javascript; charset=utf-8']],
+  ['/settings.js', ['ui/settings/settings.js', 'text/javascript; charset=utf-8']],
+  ['/settings.css', ['ui/settings/settings.css', 'text/css; charset=utf-8']],
   ['/browser.css', ['ui/browser.css', 'text/css; charset=utf-8']],
   ['/mark.png', ['assets/mark.png', 'image/png']],
   ['/wordmark.svg', ['assets/wordmark.svg', 'image/svg+xml']]
@@ -57,13 +66,14 @@ const contents = () => active()?.view?.webContents;
 const publicDownload = item => ({ id: item.id, name: item.name, status: item.status, received: item.received, total: item.total, private: item.private });
 function snapshot() {
   return {
-    tabs: tabs.map(tab => ({ id: tab.id, title: tab.title, url: tab.url, private: tab.private, pinned: tab.pinned, muted: tab.muted, closing: Boolean(tab.closing), sleeping: !tab.view, loading: Boolean(tab.view?.webContents.isLoading()), back: Boolean(tab.view?.webContents.navigationHistory.canGoBack()), forward: Boolean(tab.view?.webContents.navigationHistory.canGoForward()), blocked: tab.blocked, error: tab.error, zoom: tab.zoom, diagnostics: tab.diagnostics || null })),
+    tabs: tabs.map(tab => ({ id: tab.id, title: tab.title, url: tab.url, favicon: tab.iconVersion ? `sanad-app://browser/favicon/${tab.id}?v=${tab.iconVersion}` : '', private: tab.private, pinned: tab.pinned, muted: tab.muted, closing: Boolean(tab.closing), sleeping: !tab.view, loading: Boolean(tab.view?.webContents.isLoading()), back: Boolean(tab.view?.webContents.navigationHistory.canGoBack()), forward: Boolean(tab.view?.webContents.navigationHistory.canGoForward()), blocked: tab.blocked, error: tab.error, zoom: tab.zoom, diagnostics: tab.diagnostics || null })),
     activeId, preferences: store.state.preferences, bookmarks: store.state.bookmarks, history: store.state.history,
     downloads: [...downloads.values()].map(publicDownload), closedCount: closedTabs.length,
     notice, reader: active()?.reader || null, protectionSource: protection.source(), protectionRevision: protection.revision(), updatingProtection,
     versions: { chromium: process.versions.chrome, electron: process.versions.electron, app: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, distribution: storeDistribution ? 'microsoft-store' : 'direct' },
     updates: updates?.snapshot(), storageProtection: store.storageProtection, licenceNotices,
-    locationPrivacy: { enabled: networkPrivacy.enabled, port: networkPrivacy.port, routing: networkPrivacy.enabled ? 'configured-unverified' : 'system', geolocation: 'blocked' }
+    locationPrivacy: { enabled: networkPrivacy.enabled, port: networkPrivacy.port, routing: networkPrivacy.enabled ? 'configured-unverified' : 'system', geolocation: 'blocked' },
+    searchPolicy: { level: 'strict', locked: true }
   };
 }
 function publish() {
@@ -80,7 +90,27 @@ function layout() {
   }
 }
 function focusAddress() { win?.webContents.focus(); win?.webContents.send('sanad-browser:focus-address'); }
-function openPanel(name) { overlay = name !== 'find'; layout(); win?.webContents.focus(); win?.webContents.send('sanad-browser:open-panel', name); }
+function openPanel(name) { win?.webContents.focus(); win?.webContents.send('sanad-browser:open-panel', name); }
+function dismissOverlay() { overlayGeneration++; overlay = false; }
+async function showOverlay() {
+  const generation = ++overlayGeneration, tab = active(), wc = tab?.view?.webContents, url = wc?.getURL();
+  let preview, timer;
+  // A bounded, memory-only raster keeps the page visible behind shell panels.
+  // No page HTML enters the privileged renderer and no preview is persisted.
+  if (!overlay && wc && !wc.isDestroyed()) {
+    try {
+      const image = await Promise.race([wc.capturePage(), new Promise(resolve => { timer = setTimeout(() => resolve(null), 1000); })]).finally(() => clearTimeout(timer));
+      if (image && !image.isEmpty()) {
+        const bounded = image.resize({ width: Math.min(1600, image.getSize().width) });
+        const jpeg = bounded.toJPEG(75);
+        if (jpeg.length <= 1500000) preview = `data:image/jpeg;base64,${jpeg.toString('base64')}`;
+      }
+    } catch { /* Panels remain usable if the compositor cannot provide a frame. */ }
+  }
+  if (generation !== overlayGeneration || tab?.id !== activeId || wc?.isDestroyed() || wc?.getURL() !== url) return snapshot();
+  overlay = true; layout();
+  return { ...snapshot(), ...(preview ? { pagePreview: preview } : {}) };
+}
 function prepareSession(ses) {
   if (preparedSessions.has(ses)) return;
   preparedSessions.add(ses);
@@ -143,10 +173,16 @@ function sessionFor(isPrivate) {
   return privateSession;
 }
 function remember(tab) {
-  if (networkPrivacy.enabled || tab.private || !mayRemember(tab.url, testMode)) return;
+  if (networkPrivacy.enabled || tab.private || store.state.preferences.search?.saveHistory === false || !mayRemember(tab.url, testMode)) return;
   store.state.history = [{ url: tab.url, title: tab.title, timestamp: Date.now() }, ...store.state.history.filter(item => item.url !== tab.url)].slice(0, 200);
   store.persist();
 }
+function publicSearchPreferences() { return normalizeSearchPreferences({ ...store.state.preferences.search, theme: store.state.preferences.theme }); }
+async function syncSearchPreferences(wc, action = 'sync') {
+  if (!wc || wc.isDestroyed() || !officialSearchPage(wc.getURL())) return;
+  try { await wc.executeJavaScriptInIsolatedWorld(1005, [{ code: searchPreferenceScript(publicSearchPreferences(), action) }]); } catch { /* A future ready document receives the current preferences. */ }
+}
+function syncAllSearchPages(action = 'sync') { for (const tab of tabs) if (tab.view) void syncSearchPreferences(tab.view.webContents, action); }
 function handleKeyboard(event, input) {
   if (input.type !== 'keyDown' || input.isComposing) return;
   const command = input.control || input.meta;
@@ -154,6 +190,11 @@ function handleKeyboard(event, input) {
   if (command && ['l', 'k'].includes(key) && !input.shift) { event.preventDefault(); focusAddress(); }
   else if (command && key === 't') { event.preventDefault(); if (input.shift) restoreTab(); else { createTab(homeURL, Boolean(active()?.private)); focusAddress(); } }
   else if (command && input.shift && key === 'n') { event.preventDefault(); createTab(homeURL, true); focusAddress(); }
+  else if (command && key === 'h') { event.preventDefault(); openPanel('history'); }
+  else if (command && key === 'j') { event.preventDefault(); openPanel('downloads'); }
+  else if (command && input.shift && key === 'o') { event.preventDefault(); openPanel('bookmarks'); }
+  else if (command && input.shift && key === 'i') { event.preventDefault(); contents()?.openDevTools({ mode: 'detach' }); }
+  else if (command && ['p', 's'].includes(key)) { event.preventDefault(); void commandFromKeyboard(key === 'p' ? 'print' : 'save-offline'); }
   else if (command && /^[1-9]$/.test(key)) { event.preventDefault(); const index = key === '9' ? tabs.length - 1 : Number(key) - 1; if (tabs[index]) activate(tabs[index].id); }
   else if (command && ['PageUp', 'PageDown'].includes(input.key)) { event.preventDefault(); const index = tabs.findIndex(tab => tab.id === activeId), step = input.key === 'PageUp' ? -1 : 1; if (input.shift) { const current = active(), group = tabs.filter(tab => tab.pinned === current.pinned), place = group.indexOf(current), target = Math.max(0, Math.min(group.length - 1, place + step)); if (place !== target) moveTab(current.id, step > 0 ? group[target + 1]?.id || null : group[target].id); } else activate(tabs[(index + step + tabs.length) % tabs.length].id); }
   else if (command && key === 'w') { event.preventDefault(); closeTab(activeId); }
@@ -168,14 +209,25 @@ function handleKeyboard(event, input) {
   else if (input.alt && input.key === 'ArrowRight') { event.preventDefault(); const wc = contents(); if (wc?.navigationHistory.canGoForward()) wc.navigationHistory.goForward(); }
   else if (input.key === 'F11') { event.preventDefault(); win.setFullScreen(!win.isFullScreen()); }
 }
+async function commandFromKeyboard(action) { try { await command(action, {}); } catch { message('تعذر تنفيذ الإجراء. جرّب مرة أخرى.'); } }
 function attachView(tab, inheritedContents) {
   const ses = sessionFor(tab.private);
   const view = new WebContentsView({ webPreferences: preferences(ses), ...(inheritedContents ? { webContents: inheritedContents } : {}) });
   tab.view = view;
   win.contentView.addChildView(view);
   const wc = view.webContents;
-  tab.youtube = createYouTubeInjection(wc, store.state.preferences.protection, Boolean(inheritedContents));
-  wc.on('dom-ready', () => { void applyPageProtection(tab, wc); });
+  tab.youtube = createYouTubeInjection(wc, store.state.preferences.protection, Boolean(inheritedContents), userAgentOverride(ses.getUserAgent(), process.versions.chrome));
+  wc.on('dom-ready', () => { void syncSearchPreferences(wc); void applyPageProtection(tab, wc); });
+  wc.on('did-finish-load', () => { void syncSearchPreferences(wc); });
+  wc.on('page-favicon-updated', (_event, urls) => {
+    const url = urls.find(value => safeURL(value, testMode));
+    if (!url || url === tab.iconURL) return;
+    tab.iconURL = url; tab.iconRequest?.abort(); const controller = new AbortController(); tab.iconRequest = controller; const page = wc.getURL();
+    void faviconAsset(ses.fetch.bind(ses), url, controller.signal, testMode).then(asset => {
+      if (!asset || controller.signal.aborted || wc.isDestroyed() || wc.getURL() !== page || tab.view !== view) return;
+      tabIcons.set(tab.id, asset); tab.iconVersion = (tab.iconVersion || 0) + 1; publish();
+    });
+  });
   wc.setZoomMode('isolated');
   wc.setZoomFactor(tab.zoom);
   wc.setAudioMuted(tab.muted);
@@ -186,7 +238,7 @@ function attachView(tab, inheritedContents) {
     const menu = pageActions(params, { open: (url, privateMode, background = false) => { if (!valid()) return; const next = createTab(url, tab.private || privateMode, !background); if (next) { next.openerId = tab.id; if (background) void loadTabURL(next, next.url); } }, copy: text => { if (valid()) clipboard.writeText(text); }, run: action => { if (valid()) void command(action, {}).catch(() => message('تعذر تنفيذ الإجراء.')); } }, testMode);
     Menu.buildFromTemplate(menu).popup({ window: win, ...(params.frame ? { frame: params.frame } : {}) });
   });
-  for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void loadTabURL(tab, normalized); } });
+  for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; if (event === 'will-navigate' && e.isMainFrame !== false && tab.id === activeId && officialSearchPage(wc.getURL()) && officialSearchPage(target) && new URL(target).searchParams.get('panel') === 'native-settings') { e.preventDefault(); openPanel('settings'); return; } const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void loadTabURL(tab, normalized); } });
   wc.setWindowOpenHandler(details => {
     if (!safeURL(details.url, testMode) && details.url !== 'about:blank') { message('هذا النوع من الروابط غير مدعوم داخل المتصفح.'); return { action: 'deny' }; }
     if (tabs.length >= MAX_TABS) { message('وصلت إلى 32 تبويبًا. أغلق تبويبًا قبل فتح آخر.'); return { action: 'deny' }; }
@@ -215,7 +267,7 @@ function attachView(tab, inheritedContents) {
     publish();
   });
   wc.once('destroyed', () => { if (tab.view === view) finishClose(tab.id); });
-  wc.on('did-navigate', (_event, url) => { if (url === 'about:blank' && !inheritedContents && tab.url !== 'about:blank') return; tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
+  wc.on('did-navigate', (_event, url) => { if (url === 'about:blank' && !inheritedContents && tab.url !== 'about:blank') return; tab.iconRequest?.abort(); tab.iconURL = ''; tab.iconVersion = 0; tabIcons.delete(tab.id); tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
   wc.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { const normalized = nativeSiteURL(url, tab.private, testMode); if (normalized && normalized !== url) { void loadTabURL(tab, normalized); return; } tab.url = url; remember(tab); void applyPageProtection(tab, wc); publish(); } });
   wc.on('page-title-updated', (_event, title) => { tab.title = String(title).slice(0, 200); if (!networkPrivacy.enabled && !tab.private) { const item = store.state.history.find(item => item.url === tab.url); if (item) { item.title = tab.title; store.persist(); } } publish(); });
   for (const event of ['did-start-loading', 'did-stop-loading', 'media-started-playing', 'media-paused']) wc.on(event, publish);
@@ -244,7 +296,7 @@ function createTab(url = homeURL, isPrivate = false, load = true, inheritedConte
 function activate(id, focusPage = true) {
   const tab = tabs.find(item => item.id === id);
   if (!tab) return;
-  activeId = id; overlay = false; notice = '';
+  activeId = id; dismissOverlay(); notice = '';
   if (!tab.view) { attachView(tab); void loadTabURL(tab, tab.url); }
   layout(); if (focusPage) tab.view.webContents.focus(); else win.webContents.focus(); publish();
 }
@@ -269,6 +321,7 @@ function finishClose(id) {
   const i = tabs.findIndex(tab => tab.id === id);
   if (i < 0) return;
   const tab = tabs[i];
+  tab.iconRequest?.abort(); tabIcons.delete(id);
   if (!tab.private && mayRemember(tab.url, testMode)) { closedTabs.unshift({ url: tab.url, pinned: tab.pinned }); if (closedTabs.length > 10) closedTabs.pop(); }
   if (tab.view && !win.isDestroyed()) win.contentView.removeChildView(tab.view);
   tab.view = null; tabs.splice(i, 1);
@@ -329,6 +382,18 @@ async function command(action, data) {
   const wc = contents(), tab = active();
   switch (action) {
     case 'state': return snapshot();
+    case 'omnibox-suggest': {
+      omniboxRequest?.abort(); const request = new AbortController(); omniboxRequest = request;
+      return { suggestions: await omniboxSuggestions(wc.session.fetch.bind(wc.session), data.value, publicSearchPreferences(), Boolean(tab.private || networkPrivacy.enabled), request.signal) };
+    }
+    case 'preconnect': { const url = safeURL(data.url, testMode); if (url && !tab.private && !networkPrivacy.enabled && !store.state.preferences.search?.dataSaver) wc.session.preconnect({ url: new URL(url).origin, numSockets: 1 }); break; }
+    case 'settings': openPanel('settings'); break;
+    case 'search-preferences': {
+      const next = normalizeSearchPreferences(data.value);
+      const { theme, ...search } = next;
+      store.state.preferences.search = search; store.state.preferences.theme = theme; nativeTheme.themeSource = theme; store.persist(); syncAllSearchPages(); break;
+    }
+    case 'search-cache-clear': syncAllSearchPages('clear-cache'); message('تم مسح نتائج البحث والاقتراحات المؤقتة.'); break;
     case 'new': createTab(homeURL, data.private === true || (data.private !== false && Boolean(tab?.private))); focusAddress(); break;
     case 'activate': activate(data.id, data.focus !== 'tab-strip'); break;
     case 'tab-move': moveTab(data.id, typeof data.beforeId === 'string' ? data.beforeId : null); break;
@@ -336,8 +401,8 @@ async function command(action, data) {
     case 'tab-context-menu': tabContextMenu(data); break;
     case 'close': closeTab(data.id); break;
     case 'restore': restoreTab(); break;
-    case 'navigate': { const destination = resolveDestination(data.value, testMode); if (!destination) { message('اكتب رابطًا مشفرًا أو عبارة بحث.'); break; } if (destination.panel) { openPanel(destination.panel); break; } overlay = false; layout(); tab.error = ''; void loadTabURL(tab, nativeSiteURL(destination.url, tab.private, testMode)); wc.focus(); break; }
-    case 'home': overlay = false; layout(); void loadTabURL(tab, nativeSiteURL(homeURL, tab.private, testMode)); break;
+    case 'navigate': { const destination = resolveDestination(data.value, testMode); if (!destination) { message('اكتب رابطًا مشفرًا أو عبارة بحث.'); break; } if (destination.panel) { openPanel(destination.panel); break; } dismissOverlay(); layout(); tab.error = ''; void loadTabURL(tab, nativeSiteURL(destination.url, tab.private, testMode)); wc.focus(); break; }
+    case 'home': dismissOverlay(); layout(); void loadTabURL(tab, nativeSiteURL(homeURL, tab.private, testMode)); break;
     case 'back': if (wc?.navigationHistory.canGoBack()) wc.navigationHistory.goBack(); break;
     case 'forward': if (wc?.navigationHistory.canGoForward()) wc.navigationHistory.goForward(); break;
     case 'reload': if (wc) wc.reload(); else activate(activeId); break;
@@ -355,8 +420,8 @@ async function command(action, data) {
       store.state.bookmarks = sanitizeBookmarks([...store.state.bookmarks, ...imported]); store.persist(); message(`أُضيفت المفضلة. لديك الآن ${store.state.bookmarks.length} رابطًا.`); break;
     }
     case 'bookmark-export': { const result = await dialog.showSaveDialog(win, { title: 'تصدير المفضلة', defaultPath: 'sanad-bookmarks.json', filters: [{ name: 'JSON', extensions: ['json'] }] }); if (!result.canceled) fs.writeFileSync(result.filePath, JSON.stringify({ version: 1, bookmarks: store.state.bookmarks }, null, 2)); break; }
-    case 'history-clear': store.state.history = []; store.persist(); break;
-    case 'theme': store.state.preferences.theme = store.state.preferences.theme === 'dark' ? 'light' : 'dark'; nativeTheme.themeSource = store.state.preferences.theme; store.persist(); break;
+    case 'history-clear': store.state.history = []; store.persist(); syncAllSearchPages('clear-history'); break;
+    case 'theme': store.state.preferences.theme = store.state.preferences.theme === 'dark' ? 'light' : 'dark'; nativeTheme.themeSource = store.state.preferences.theme; store.persist(); syncAllSearchPages(); break;
     case 'protection': store.state.preferences.protection = data.value === true; for (const ses of preparedSessions) protection.set(ses, store.state.preferences.protection); for (const target of tabs) if (target.view) void applyPageProtection(target, target.view.webContents); store.persist(); break;
     case 'network-privacy': {
       const config = validateConfig({ version: 1, enabled: data.enabled, port: data.port });
@@ -396,6 +461,12 @@ async function command(action, data) {
       tab.diagnostics = { response: number(raw?.response), dom: number(raw?.dom), load: number(raw?.load), paint: number(raw?.paint), resources: number(raw?.resources), memory, gpu, measuredAt: Date.now() };
       break;
     }
+    case 'print': {
+      if (!wc || wc.isDestroyed()) break;
+      dismissOverlay(); layout();
+      wc.print({ silent: false, printBackground: true }, (success, reason) => { if (!success && reason && !/cancel/i.test(reason)) message('تعذرت الطباعة. تحقق من إعدادات الطابعة وأعد المحاولة.'); });
+      break;
+    }
     case 'save-pdf': {
       if (!wc || wc.isDestroyed()) break;
       const capturedURL = wc.getURL();
@@ -410,11 +481,11 @@ async function command(action, data) {
       const filename = image ? 'sanad-page.png' : 'sanad-page.mhtml';
       const result = testMode ? { canceled: false, filePath: path.join(app.getPath('userData'), filename) } : await dialog.showSaveDialog(win, { title: image ? 'حفظ صورة الجزء الظاهر من الصفحة' : 'حفظ الصفحة للقراءة دون اتصال', defaultPath: filename, filters: [{ name: image ? 'PNG image' : 'MHTML web archive', extensions: [image ? 'png' : 'mhtml'] }] });
       if (result.canceled || !result.filePath || wc.isDestroyed() || wc.getURL() !== capturedURL) break;
-      if (image) { overlay = false; layout(); const capture = await wc.capturePage(); if (capture.isEmpty()) throw new Error('تعذر تصوير الصفحة.'); fs.writeFileSync(result.filePath, capture.toPNG()); }
+      if (image) { dismissOverlay(); layout(); const capture = await wc.capturePage(); if (capture.isEmpty()) throw new Error('تعذر تصوير الصفحة.'); fs.writeFileSync(result.filePath, capture.toPNG()); }
       else await wc.savePage(result.filePath, 'MHTML');
       message(image ? 'تم حفظ صورة الصفحة.' : 'تم حفظ نسخة MHTML للقراءة بمتصفح متوافق دون اتصال.'); break;
     }
-    case 'overlay': overlay = data.value === true; layout(); break;
+    case 'overlay': if (data.value === true) return showOverlay(); dismissOverlay(); layout(); break;
     case 'toolbar-height': if (Number.isFinite(data.value)) { toolbarHeight = Math.max(80, Math.min(320, Math.ceil(data.value))); layout(); } break;
     case 'devtools': wc?.openDevTools({ mode: 'detach' }); break;
     case 'fullscreen': win.setFullScreen(!win.isFullScreen()); break;
@@ -461,8 +532,9 @@ app.whenReady().then(async () => {
   protocol.handle('sanad-app', request => {
     const url = new URL(request.url);
     const file = url.hostname === 'browser' && localFiles.get(url.pathname);
+    if (url.hostname === 'browser' && url.pathname.startsWith('/favicon/')) { const icon = tabIcons.get(url.pathname.slice('/favicon/'.length)); return icon ? new Response(icon.data, { headers: { 'Content-Type': icon.mime, 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; script-src 'none'" } }) : new Response('Not found', { status: 404 }); }
     if (!file) return new Response('Not found', { status: 404 });
-    return new Response(fs.readFileSync(path.join(__dirname, file[0])), { headers: { 'Content-Type': file[1], 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" } });
+    return new Response(fs.readFileSync(path.join(__dirname, file[0])), { headers: { 'Content-Type': file[1], 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" } });
   });
   ipcMain.handle('sanad-browser:command', async (event, action, data = {}) => {
     if (!trustedSender(event, win?.webContents) || typeof action !== 'string' || !data || typeof data !== 'object' || JSON.stringify(data).length > 10000) throw new Error('Request rejected');

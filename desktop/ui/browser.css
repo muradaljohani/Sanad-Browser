@@ -45,3 +45,85 @@
 @keyframes tab-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.tab{transition:none}.tab.loading .tab-site-symbol{animation:none;border-color:var(--accent)}}
 @media(pointer:coarse){.tab-row{height:52px}#tabs{height:47px}.tab{height:41px}.tab>button.tab-select{height:39px}.tab>button.tab-close{height:36px;width:36px;min-width:36px}.tab.pinned{min-width:78px;max-width:78px}}
+
+/* Chromium-like geometry, with Sanad identity and a permanent strict-search indicator. */
+:root{--bg:#202124;--surface:#303134;--line:#47494f;--text:#e8eaed;--muted:#b6bbc4;--selected:#414349;--policy:#8ce9b1;--policy-bg:#123b29;--policy-line:#32794e}
+:root[data-theme=light]{--bg:#e3e9f2;--surface:#fff;--line:#d9dfe8;--text:#202124;--muted:#60656f;--selected:#edf1f7;--policy:#137333;--policy-bg:#e7f5eb;--policy-line:#a8d5b5}
+.tab-row{height:44px;padding:5px 10px 0;gap:6px;align-items:flex-end}
+#tabs{height:39px;gap:4px;padding:1px 4px 0;align-items:flex-end;overflow-y:hidden}
+.tab{height:37px;border:0;border-radius:11px 11px 0 0;background:transparent;color:var(--muted);overflow:visible}
+.tab:not(.active):not(:hover)::before{content:"";position:absolute;inset-inline-end:-3px;top:10px;bottom:10px;width:1px;background:var(--line)}
+.tab:hover{background:var(--selected)}
+.tab.active{background:var(--surface);border:0;box-shadow:none;color:var(--text);z-index:2}
+.tab.active::before,.tab.active::after{content:"";position:absolute;bottom:0;width:10px;height:10px;background:var(--surface);pointer-events:none}
+.tab.active::before{left:-10px;mask:radial-gradient(10px at 0 0,transparent 99%,#000 100%)}
+.tab.active::after{right:-10px;mask:radial-gradient(10px at 100% 0,transparent 99%,#000 100%)}
+.tab.private-tab{box-shadow:inset 0 2px #a995d8}
+.tab>button.tab-select{height:36px;min-height:36px;gap:9px;font-size:12px;padding-inline:10px 5px}
+.tab-site-symbol{width:17px;height:17px;border-radius:4px;background:transparent;color:var(--muted);font-size:12px}
+.tab.active .tab-site-symbol{color:var(--accent)}
+.tab>button.tab-close{min-width:27px;width:27px;height:27px;min-height:27px;font-size:19px;margin-inline-end:6px}
+.tab>button.tab-close:hover{background:color-mix(in srgb,var(--text) 12%,transparent)}
+.tab.pinned{flex-basis:66px;min-width:66px;max-width:66px}
+.tab.pinned>button.tab-close{width:24px;min-width:24px;margin-inline-end:3px}
+#new-tab{border:0;background:transparent;color:var(--text);margin-bottom:3px}
+#new-tab:hover,#tab-search:hover,#tabs-prev:hover,#tabs-next:hover{background:var(--selected)}
+#tab-search,#tabs-prev,#tabs-next{margin-bottom:3px}
+.toolbar{height:52px;padding:5px 8px;gap:3px}
+.toolbar>button{min-width:34px;min-height:34px;border-radius:50%}
+#address-form{height:39px;border-radius:24px;border-color:transparent;background:color-mix(in srgb,var(--bg) 75%,var(--surface));gap:8px}
+#address{font-size:14px}
+#strict-search{display:inline-flex;gap:5px;min-width:95px;min-height:32px;margin-inline:4px;padding:5px 9px;border:1px solid var(--policy-line);border-radius:18px;color:var(--policy);background:var(--policy-bg);font-size:11px;font-weight:600}
+#strict-search-icon{display:flex}#strict-search-icon svg{width:15px;height:15px}
+#strict-search:hover{filter:brightness(1.08)}
+#page-preview{position:fixed;inset:var(--toolbar-height,100px) 0 0;width:100%;height:calc(100% - var(--toolbar-height,100px));object-fit:fill;pointer-events:none;z-index:1}
+#page-preview[hidden]{display:none}
+#panel{z-index:5}
+#panel.browser-menu{inset:calc(var(--toolbar-height,100px) + 4px) auto auto 8px;width:360px;max-width:calc(100vw - 16px);max-height:calc(100vh - var(--toolbar-height,100px) - 12px);padding:7px 0;border-radius:10px;box-shadow:0 8px 28px #0004,0 2px 6px #0002;border:1px solid var(--line);scrollbar-width:thin;overscroll-behavior:contain}
+.browser-menu::backdrop{background:#00000012}
+.browser-menu .panel-heading{margin:0;padding:0 12px 6px;height:33px;border-bottom:1px solid var(--line)}
+.browser-menu .panel-heading h1{font-size:12px;font-weight:600;color:var(--muted)}
+.browser-menu .panel-heading button{width:28px;min-width:28px;min-height:28px;height:28px;font-size:20px}
+.browser-menu-group{padding:5px 7px;border-bottom:1px solid var(--line)}
+.browser-menu-group:last-child{border-bottom:0}
+.browser-menu-item{display:flex;align-items:center;gap:12px;width:100%;min-width:0;min-height:33px;padding:6px 10px;border-radius:5px;text-align:start;font-size:12px;line-height:1.45;cursor:pointer;color:var(--text)}
+.browser-menu-item:hover,.browser-menu-item:focus-visible{background:var(--selected)}
+.browser-menu-icon{display:flex;align-items:center;justify-content:center;flex:0 0 18px;color:var(--muted)}
+.browser-menu-icon svg{width:16px;height:16px}
+.browser-menu-label{flex:1;min-width:0;white-space:normal}
+.browser-menu-item kbd{font:10px "Segoe UI",Arial,sans-serif;color:var(--muted);white-space:nowrap;margin-inline-start:auto}
+.browser-menu-chevron{display:flex;color:var(--muted);margin-inline-start:auto}
+.browser-menu-chevron svg{width:14px;height:14px}
+.browser-menu-account{background:color-mix(in srgb,var(--selected) 65%,transparent);border-radius:18px}
+.browser-menu-policy{background:var(--policy-bg);border:1px solid var(--policy-line);color:var(--policy);padding-block:8px}
+.browser-menu-policy .browser-menu-icon,.browser-menu-policy .browser-menu-chevron{color:var(--policy)}
+.browser-menu-policy small{display:block;font-size:10px;font-weight:400;margin-top:3px;color:var(--policy)}
+.browser-menu-zoom{display:flex;align-items:center;justify-content:space-between;gap:5px;padding:7px 17px}
+.browser-menu-zoom-title{font-size:12px;white-space:nowrap}
+.browser-menu-zoom-controls{display:flex;align-items:center;gap:4px}
+.browser-menu-zoom-controls button{width:29px;min-width:29px;height:29px;min-height:29px;border-radius:50%;background:var(--selected);padding:0;font-size:17px}
+.browser-menu-zoom-controls .browser-menu-zoom-value{width:49px;min-width:49px;background:none;font-size:11px}
+.browser-menu-zoom-controls button:last-child{background:none;margin-left:5px;border-left:1px solid var(--line);border-radius:0;padding-left:7px;width:35px}
+.browser-menu-details>summary{list-style:none;user-select:none}
+.browser-menu-details>summary::-webkit-details-marker{display:none}
+.browser-menu-details[open]>summary .browser-menu-chevron{transform:rotate(-90deg)}
+.browser-menu-subitems{padding:3px 10px 4px 0;margin-inline-start:17px;border-inline-start:1px solid var(--line)}
+.browser-menu-subitems .browser-menu-item{font-size:11px;padding-inline:7px;gap:8px}
+.strict-policy-heading{display:flex;align-items:center;gap:10px;padding:15px;border:1px solid var(--policy-line);border-radius:12px;color:var(--policy);background:var(--policy-bg);font-size:16px}
+.strict-policy-heading>span{display:flex}
+.strict-policy-steps{margin:12px 0;padding-inline-start:24px;font-size:14px;line-height:1.9}
+.strict-policy-steps li{margin-block:10px}
+#panel.settings-panel{width:min(820px,calc(100vw - 40px));background:var(--surface)}
+#address-suggestions{position:fixed;z-index:4;max-height:min(360px,60vh);overflow:auto;padding:7px;border:1px solid var(--line);border-radius:0 0 16px 16px;background:var(--surface);box-shadow:0 14px 26px #0003;scrollbar-width:thin}
+#address-suggestions[hidden]{display:none}
+.omnibox-option{display:flex;align-items:center;justify-content:flex-start;gap:12px;width:100%;min-height:46px;padding:8px 12px;border-radius:9px;text-align:start}
+.omnibox-option:hover,.omnibox-option[aria-selected=true]{background:var(--selected)}
+.omnibox-option-icon{display:flex;color:var(--muted);flex:none}
+.omnibox-option-text{display:grid;gap:3px;min-width:0;flex:1}
+.omnibox-option strong{font-size:13px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.omnibox-option small{color:var(--muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab-site-symbol img{display:block;width:17px;height:17px;object-fit:contain}.tab-site-symbol img[hidden],.tab-site-symbol .tab-site-initial[hidden]{display:none}
+.tab.loading .tab-site-symbol>*{display:none}
+.tab.dragging{opacity:1;z-index:10;will-change:transform;box-shadow:0 6px 16px #0004;cursor:grabbing;transition:none}
+.pointer-dragging,.pointer-dragging *{cursor:grabbing!important}.tab-select{touch-action:none}
+@media(pointer:coarse){.browser-menu-item{min-height:44px}.tab-row{height:48px}#tabs{height:43px}.tab{height:41px}.tab>button.tab-select{height:40px}}

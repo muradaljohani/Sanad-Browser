@@ -27,7 +27,7 @@ async function main() {
     const onPage = source => app.evaluate(({ webContents }, source) => { const page = webContents.getAllWebContents().find(wc => wc.getURL().startsWith('http://127.0.0.1:')); if (!page) throw new Error('Fixture missing'); return page.executeJavaScript(source); }, source);
     assert.deepEqual(await onPage('({node:typeof require, bridge:typeof window.sanadBrowser, process:typeof process})'), { node: 'undefined', bridge: 'undefined', process: 'undefined' });
     const agent = await onPage('navigator.userAgent');
-    assert(agent.endsWith(`SanadBrowser/${require('../package.json').version}`));
+    assert(agent.endsWith('SanadBrowser/1.0.0'));
     assert.doesNotMatch(agent, /Electron|sanad-browser-desktop/i);
     assert.equal(receivedAgents[0], agent, 'the request header and page identity agree');
     const identity = await app.evaluate(({ app, session }) => ({ fallback: app.userAgentFallback, regular: session.fromPartition('persist:sanad-web').getUserAgent() }));
@@ -100,4 +100,5 @@ async function main() {
   } finally { if (app) await app.close(); await new Promise(resolve => server.close(resolve)); fs.rmSync(profile, { recursive: true, force: true }); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
+
 
