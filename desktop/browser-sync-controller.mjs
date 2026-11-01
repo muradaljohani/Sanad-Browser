@@ -1,7 +1,7 @@
 import { normalizeSyncSnapshot,snapshotDiff,applySyncBatch,snapshotFromDocument } from './browser-sync-model.mjs';
 import { accountRequest } from './browser-account-client.mjs';
 // Credentials stay in the caller's protected store; status() never exposes them.
-export function createBrowserSync({readAuth,writeAuth,readSnapshot,applyRemote,onStatus=()=>{},fetchImpl=fetch,canSync=()=>true}){
+export function createBrowserSync({readAuth,writeAuth,readSnapshot,applyRemote,onStatus=(_status)=>{},fetchImpl=fetch,canSync=()=>true}){
  let running=false,stopped=false,initializing=false,hasRestored=false,timer,interval,phase='signed-out',lastSync=0,error='';
  const persist=auth=>{writeAuth(auth);};
  const update=(next,message='')=>{phase=next;error=message;onStatus(status());};
