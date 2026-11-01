@@ -134,20 +134,26 @@ async function main() {
     await shell.waitForFunction(async () => Boolean((await window.sanadBrowser.command('state')).tabs[0]?.error));
     assert.equal((await shell.evaluate(() => window.sanadBrowser.command('state'))).locationPrivacy.enabled, true);
     assert.equal(hits.length, before);
-    // Capture relaunch options without spawning an unmanaged second application.
+    // Capture relaunch options while letting the real shutdown finish normally.
+    // Never stub app.quit: a failed assertion could otherwise strand the test process.
+    let relaunchLog = '';
+    app.process().stdout?.on('data', chunk => { relaunchLog = (relaunchLog + chunk.toString()).slice(-65536); });
     await app.evaluate(({ app, dialog }) => {
-      app.__testQuit = app.quit.bind(app); app.quit = () => {};
-      app.relaunch = options => { app.__testRelaunch = options; };
+      app.relaunch = options => { console.log('SANAD_TEST_RELAUNCH=' + JSON.stringify(options)); };
       dialog.showMessageBox = async () => ({ response: 1 });
     });
     await shell.getByRole('button', { name: 'حماية الخصوصية', exact: true }).click();
-    await shell.getByRole('button', { name: 'إيقاف وضع الوسيط وإعادة التشغيل', exact: true }).click();
-    await shell.waitForFunction(async () => (await window.sanadBrowser.command('state')).tabs.length === 0);
-    const restart = await app.evaluate(({ app }) => app.__testRelaunch);
+    const exited = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Privacy restart did not exit within 15 seconds')), 15000);
+      app.process().once('exit', () => { clearTimeout(timer); resolve(); });
+    });
+    await shell.getByRole('button', { name: 'إيقاف وضع الوسيط وإعادة التشغيل', exact: true }).click({ noWaitAfter: true });
+    await exited; app = undefined;
+    const captured = relaunchLog.match(/^SANAD_TEST_RELAUNCH=(.+)$/m); assert(captured, 'actual restart command was captured');
+    const restart = JSON.parse(captured[1]);
     assert(Array.isArray(restart.args));
     assert(!restart.args.some(arg => /^--(?:proxy-server|proxy-bypass-list|host-resolver-rules|disable-quic)(?:=|$)/.test(arg)), 'runtime switches are absent from the relaunch command');
     assert.equal(readNetworkPrivacy(profile).enabled, false);
-    await app.evaluate(({ app }) => { app.quit = app.__testQuit; }); await app.close(); app = undefined;
     const ordinary = await launch();
     assert.equal((await ordinary.cmd('state')).locationPrivacy.enabled, false);
     assert(hits.length > before, 'ordinary browsing works again after disabling the mode');
