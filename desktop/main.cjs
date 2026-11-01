@@ -162,7 +162,7 @@ function prepareSession(ses) {
     const names = { media: 'الكاميرا أو الميكروفون', geolocation: 'موقعك', notifications: 'الإشعارات' };
     try {
       const result = await dialog.showMessageBox(win, { type: 'question', title: 'إذن الموقع', message: `${origin}\nيطلب الوصول إلى ${names[permission]}.`, buttons: ['رفض', 'السماح لهذه الجلسة'], defaultId: 0, cancelId: 0, noLink: true });
-      const allow = result.response === 1 && !wc.isDestroyed() && new URL(wc.getURL()).origin === origin;
+      const allow = result.response === 1 && tab.profileId===profileManager.active.id && tab.id===activeId && !wc.isDestroyed() && new URL(wc.getURL()).origin === origin;
       permissionGrants.set(key, allow); callback(allow);
     } catch { callback(false); }
   });
@@ -194,17 +194,19 @@ function sessionFor(isPrivate) {
   return privateSession;
 }
 function remember(tab) {
+  if(!tabs.includes(tab)||tab.profileId!==profileManager.active.id)return;
   if (networkPrivacy.enabled || tab.private || store.state.preferences.search?.saveHistory === false || !mayRemember(tab.url, testMode)) return;
   store.state.history = [{ url: tab.url, title: tab.title, timestamp: Date.now() }, ...store.state.history.filter(item => item.url !== tab.url)].slice(0, 200);
   store.persist();
 }
 function publicSearchPreferences() { return normalizeSearchPreferences({ ...store.state.preferences.search, theme: store.state.preferences.theme }); }
 async function syncSearchPreferences(wc, action = 'sync') {
-  if (!wc || wc.isDestroyed() || !officialSearchPage(wc.getURL())) return;
+  if (!tabs.some(tab=>tab.profileId===profileManager.active.id&&tab.view?.webContents===wc) || !wc || wc.isDestroyed() || !officialSearchPage(wc.getURL())) return;
   try { await wc.executeJavaScriptInIsolatedWorld(1005, [{ code: searchPreferenceScript(publicSearchPreferences(), action) }]); } catch { /* A future ready document receives the current preferences. */ }
 }
 function syncAllSearchPages(action = 'sync') { for (const tab of tabs) if (tab.view) void syncSearchPreferences(tab.view.webContents, action); }
 function handleKeyboard(event, input) {
+  if(switchingProfile){event.preventDefault();return;}
   if (input.type !== 'keyDown' || input.isComposing) return;
   const command = input.control || input.meta;
   const key = input.key.toLowerCase();
@@ -261,6 +263,7 @@ function attachView(tab, inheritedContents) {
   });
   for (const event of ['will-navigate', 'will-redirect']) wc.on(event, (e, url) => { const target = typeof url === 'string' ? url : e.url; if (event === 'will-navigate' && e.isMainFrame !== false && tab.id === activeId && officialSearchPage(wc.getURL()) && officialSearchPage(target) && ['native-settings','native-sync'].includes(new URL(target).searchParams.get('panel'))) { e.preventDefault(); openPanel(new URL(target).searchParams.get('panel')==='native-sync'?'sync':'settings'); return; } const normalized = nativeSiteURL(target, tab.private, testMode); if (!normalized) { e.preventDefault(); message('يسمح المتصفح بالمواقع المشفرة فقط.'); } else if (e.isMainFrame !== false && normalized !== target) { e.preventDefault(); void loadTabURL(tab, normalized); } });
   wc.setWindowOpenHandler(details => {
+    if(switchingProfile||!tabs.includes(tab)||tab.profileId!==profileManager.active.id)return {action:'deny'};
     if (!safeURL(details.url, testMode) && details.url !== 'about:blank') { message('هذا النوع من الروابط غير مدعوم داخل المتصفح.'); return { action: 'deny' }; }
     if (tabs.length >= MAX_TABS) { message('وصلت إلى 32 تبويبًا. أغلق تبويبًا قبل فتح آخر.'); return { action: 'deny' }; }
     return { action: 'allow', outlivesOpener: true, createWindow: options => {
@@ -290,7 +293,7 @@ function attachView(tab, inheritedContents) {
   wc.once('destroyed', () => { if (tab.view === view) finishClose(tab.id); });
   wc.on('did-navigate', (_event, url) => { if (url === 'about:blank' && !inheritedContents && tab.url !== 'about:blank') return; tab.iconRequest?.abort(); tab.iconURL = ''; tab.iconVersion = 0; tabIcons.delete(tab.id); tab.url = url; tab.error = ''; tab.diagnostics = null; tab.reader = null; remember(tab); publish(); });
   wc.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { const normalized = nativeSiteURL(url, tab.private, testMode); if (normalized && normalized !== url) { void loadTabURL(tab, normalized); return; } tab.url = url; remember(tab); void applyPageProtection(tab, wc); publish(); } });
-  wc.on('page-title-updated', (_event, title) => { tab.title = String(title).slice(0, 200); if (!networkPrivacy.enabled && !tab.private) { const item = store.state.history.find(item => item.url === tab.url); if (item) { item.title = tab.title; store.persist(); } } publish(); });
+  wc.on('page-title-updated', (_event, title) => { if(!tabs.includes(tab)||tab.profileId!==profileManager.active.id)return;tab.title = String(title).slice(0, 200); if (!networkPrivacy.enabled && !tab.private) { const item = store.state.history.find(item => item.url === tab.url); if (item) { item.title = tab.title; store.persist(); } } publish(); });
   for (const event of ['did-start-loading', 'did-stop-loading', 'media-started-playing', 'media-paused']) wc.on(event, publish);
   wc.on('did-fail-load', (_event, code, _description, url, isMainFrame) => { if (isMainFrame && code !== -3) { tab.error = networkPrivacy.enabled ? 'تعذر فتح الصفحة عبر الوسيط المحلي. تحقق من تشغيله؛ لا يتحول المتصفح تلقائيًا إلى اتصال مباشر.' : 'تعذر فتح الصفحة. تحقق من الاتصال أو جرّب إعادة التحميل.'; tab.url = safeURL(url, testMode) || tab.url; publish(); } });
   wc.on('render-process-gone', () => { tab.error = 'توقفت الصفحة. أعد تحميلها للمتابعة.'; publish(); });
@@ -308,7 +311,7 @@ function createTab(url = homeURL, isPrivate = false, load = true, inheritedConte
   if (tabs.length >= MAX_TABS) { message('وصلت إلى 32 تبويبًا. أغلق تبويبًا قبل فتح آخر.'); return null; }
   const safe = allowBlank && url === 'about:blank' ? url : nativeSiteURL(url, isPrivate, testMode);
   if (!safe) return null;
-  const tab = { id: crypto.randomUUID(), title: 'تبويب جديد', url: safe, private: Boolean(isPrivate), pinned: false, muted: false, blocked: 0, error: '', zoom: 1, view: null };
+  const tab = { id: crypto.randomUUID(), profileId:profileManager.active.id, title: 'تبويب جديد', url: safe, private: Boolean(isPrivate), pinned: false, muted: false, blocked: 0, error: '', zoom: 1, view: null };
   tabs.push(tab);
   attachView(tab, inheritedContents);
   if (load) { activate(tab.id); void loadTabURL(tab, safe); }
@@ -383,6 +386,7 @@ function bookmark() {
 }
 function changeZoom(value) { const tab = active(); if (!tab || !Number.isFinite(value)) return; tab.zoom = Math.max(.5, Math.min(2, Math.round(value * 10) / 10)); tab.view?.webContents.setZoomFactor(tab.zoom); publish(); }
 async function applyPageProtection(tab, wc) {
+  if(!tabs.includes(tab)||tab.profileId!==profileManager.active.id||tab.view?.webContents!==wc)return;
   if (wc.isDestroyed() || tab.view?.webContents !== wc) return;
   const epoch = tab.protectionEpoch = (tab.protectionEpoch || 0) + 1;
   const url = wc.getURL(), enabled = store.state.preferences.protection;
@@ -559,13 +563,29 @@ async function startProfileServices(){
 }
 async function switchProfile(id,auth){
  if(switchingProfile||id===profileManager.active.id)return;
- const dir=profileManager.directory(id),nextStore=await openEncryptedStore(dir,{safeStorage,context:profileManager.context(id)}),nextVault=await openPrivateVault(dir,id,{safeStorage});
- if(nextStore.storageProtection.status!=='encrypted'||nextVault.protection.status!=='encrypted')throw Error('تعذر فتح ملف التعريف المشفر.');
- if(auth){const {accountRequest}=await import('./browser-account-client.mjs');await accountRequest('device',{token:auth.token,body:{deviceId:nextStore.state.deviceId},fetchImpl:regularSession.fetch.bind(regularSession)});await profileManager.claim(id,auth.identity);nextStore.state.sync={...auth,deviceId:nextStore.state.deviceId};await nextStore.flush();}
- const targetIdentity=profileManager.get(id).identity;if(targetIdentity&&nextStore.state.sync?.identity?.uid&&targetIdentity.uid!==nextStore.state.sync.identity.uid)throw Error('profile_account_mismatch');
  rememberSession();switchingProfile=true;
- try{await store.flush();await privateVault.flush().catch(()=>{});await profileManager.activate(id);browserAccount.stop();vaultActions.dispose();await extensionsManager?.dispose();profileEpoch++;omniboxRequest?.abort();for(const tab of tabs){tab.iconRequest?.abort();destroyView(tab);}tabs.length=0;closedTabs.length=0;tabIcons.clear();permissionGrants.clear();await cleanupPrivate();store=nextStore;privateVault=nextVault;regularSession=session.fromPartition(networkPrivacy.enabled?'sanad-network-'+crypto.randomUUID():profileManager.partition(id));prepareSession(regularSession);protection.set(regularSession,store.state.preferences.protection);await sessionSetup.get(regularSession);nativeTheme.themeSource=store.state.preferences.theme;activeId=null;await startProfileServices();restoreSession();}
- finally{switchingProfile=false;publish();}
+ try{
+  const dir=profileManager.directory(id);
+  const nextStore=await openEncryptedStore(dir,{safeStorage,context:profileManager.context(id)});
+  const nextVault=await openPrivateVault(dir,id,{safeStorage});
+  if(nextStore.storageProtection.status!=='encrypted'||nextVault.protection.status!=='encrypted')throw Error('تعذر فتح ملف التعريف المشفر.');
+  if(auth){
+   const {accountRequest}=await import('./browser-account-client.mjs');
+   await accountRequest('device',{token:auth.token,body:{deviceId:nextStore.state.deviceId},fetchImpl:regularSession.fetch.bind(regularSession)});
+   await profileManager.claim(id,auth.identity);
+   nextStore.state.sync={...auth,deviceId:nextStore.state.deviceId};await nextStore.flush();
+  }
+  const targetIdentity=profileManager.get(id).identity;
+  if(targetIdentity&&nextStore.state.sync?.identity?.uid&&targetIdentity.uid!==nextStore.state.sync.identity.uid)throw Error('profile_account_mismatch');
+  await store.flush();await privateVault.flush().catch(()=>{});await profileManager.activate(id);
+  browserAccount.stop();vaultActions.dispose();await extensionsManager?.dispose();profileEpoch++;omniboxRequest?.abort();
+  for(const tab of tabs){tab.iconRequest?.abort();destroyView(tab);}
+  tabs.length=0;closedTabs.length=0;tabIcons.clear();permissionGrants.clear();await cleanupPrivate();
+  store=nextStore;privateVault=nextVault;
+  regularSession=session.fromPartition(networkPrivacy.enabled?'sanad-network-'+crypto.randomUUID():profileManager.partition(id));
+  prepareSession(regularSession);protection.set(regularSession,store.state.preferences.protection);await sessionSetup.get(regularSession);
+  nativeTheme.themeSource=store.state.preferences.theme;activeId=null;await startProfileServices();restoreSession();
+ }finally{switchingProfile=false;publish();}
  void browserAccount.start();
 }
 async function shutdown() {
