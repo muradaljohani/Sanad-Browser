@@ -1,3 +1,8 @@
+# 1.5.1 — Quiet private-vault synchronization
+
+- Queue private-data synchronization only after actual local changes; status publishing no longer starts repeated idle requests.
+- Verify real HTTPS form submission, save approval and OS-encrypted storage on Windows.
+
 # 1.5.0 — Native profiles and protected private-data sync
 
 - Isolate each local profile's encrypted settings, history, normal tabs, private vault and persistent Chromium cookies. Switch profiles without sharing sessions; archive profiles recoverably.
