@@ -7,7 +7,9 @@ window.SanadTabStrip = function createTabStrip({ root, previous, next, count, an
   const rtl = () => getComputedStyle(root).direction === 'rtl';
   function animate(node, frames, duration = 160) {
     if (reduced() || !node.animate) return null;
-    return node.animate(frames, { duration, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    const animation = node.animate(frames, { duration, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    animation.finished.then(overflow, () => {});
+    return animation;
   }
   function overflow() {
     const maximum = Math.max(0, root.scrollWidth - root.clientWidth);
@@ -94,7 +96,7 @@ window.SanadTabStrip = function createTabStrip({ root, previous, next, count, an
       nodes.delete(id); item.node.classList.add('closing'); item.node.setAttribute('aria-hidden', 'true'); item.node.inert = true;
       Object.assign(item.node.style, { position: 'absolute', left: `${rect.left - bounds.left + root.scrollLeft}px`, top: `${rect.top - bounds.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, margin: '0' });
       const animation = animate(item.node, [{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(.88) translateY(5px)' }], 130);
-      if (animation) animation.finished.catch(() => {}).finally(() => item.node.remove()); else item.node.remove();
+      if (animation) animation.finished.catch(() => {}).finally(() => { item.node.remove(); overflow(); }); else item.node.remove();
     }
     for (const tab of state.tabs) {
       if (!nodes.has(tab.id)) nodes.set(tab.id, make(tab));

@@ -31,7 +31,7 @@ async function main() {
     }, { keyCode, shift });
     const output = path.join(__dirname, '..', 'test-results'); fs.mkdirSync(output, { recursive: true });
     const screenshot = async name => {
-      const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64'));
+      const png = await app.evaluate(async ({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; return (await win.capturePage({ x: 0, y: 0, width: win.getContentBounds().width, height: 110 })).toPNG().toString('base64'); });
       fs.writeFileSync(path.join(output, name), Buffer.from(png, 'base64'));
     };
     const poll = async (predicate, label) => { const end = Date.now() + 15000; let state; while (Date.now() < end) { state = await cmd('state'); if (predicate(state)) return state; await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error(`Timed out ${label}: ${JSON.stringify(state)}`); };
@@ -76,6 +76,9 @@ async function main() {
     await poll(s => s.tabs[0].pinned && s.tabs[0].url === base + '/alpha', 'restore pinned order');
     await shortcut('1'); await poll(s => s.activeId === s.tabs[0].id, 'native Ctrl+1');
     await shortcut('PageDown'); await poll(s => s.activeId === s.tabs[1].id, 'native Ctrl+PageDown');
+    await poll(s => s.tabs.every(t => !t.loading), 'restored pages load');
+    await shell.waitForFunction(() => document.querySelector('#tabs').getAnimations({ subtree: true }).length === 0);
+    await shell.getByRole('button', { name: 'تمرير إلى التبويبات التالية', exact: true }).waitFor({ state: 'hidden' });
     await screenshot('tab-strip.png');
     await shell.getByRole('button', { name: 'تبويب جديد', exact: true }).click();
     await shell.waitForFunction(() => document.activeElement?.id === 'address');
