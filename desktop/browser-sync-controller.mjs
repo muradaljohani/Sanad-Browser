@@ -12,7 +12,7 @@ export function createBrowserSync({readAuth,writeAuth,readSnapshot,applyRemote,o
  function changed(){if(stopped||!capture())return;clearTimeout(timer);timer=setTimeout(()=>void syncNow(),1200);}
  function effective(document,auth){return auth.queue?.length?applySyncBatch(document,auth.deviceId,auth.queue):document;}
  async function adopt(document,auth){const doc=effective(document,auth),remote=snapshotFromDocument(doc),current=normalizeSyncSnapshot(readSnapshot());
- const choice=syncSelection(auth);for(const type of ['bookmarks','settings','history'])if(!choice[type])remote[type]=current[type];const restore=!hasRestored&&choice.tabs;hasRestored=true;
+ const choice=syncSelection(auth);for(const type of ['bookmarks','settings','history'])if(!choice[type])remote[type]=current[type];const restore=!hasRestored&&choice.tabs;if(choice.tabs)hasRestored=true;
  auth.observed=structuredClone({...remote,history:choice.history?remote.history:current.history,tabs:current.tabs});persist(auth);
  await applyRemote({snapshot:remote,document:doc,restoreDocument:document,deviceId:auth.deviceId,restore,includeHistory:choice.history});}
  async function syncNow(){if(running||stopped||!canSync())return;let auth=readAuth();if(!auth?.token||!auth.enabled){update(auth?.token?'awaiting-consent':'signed-out');return;}
