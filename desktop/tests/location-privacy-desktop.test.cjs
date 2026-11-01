@@ -70,8 +70,10 @@ async function main() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port, base = `http://localhost:${port}`;
   let app, proxy;
+  const sandboxArgs = process.platform === 'linux' ? ['--no-sandbox'] : [];
   const launch = async () => {
-    app = await electron.launch({ args: ['--no-sandbox', '--no-proxy-server', '--proxy-bypass-list=*', path.join(__dirname, '..')], env: { ...process.env, SANAD_BROWSER_TEST_MODE: '1', SANAD_BROWSER_TEST_PROFILE: profile, SANAD_BROWSER_TEST_URL: base, SANAD_BROWSER_TEST_UPDATE_URL: `${base}/update-feed` }, timeout: 30000 });
+    app = await electron.launch({ args: [...sandboxArgs, path.join(__dirname, '..'), '--no-proxy-server', '--proxy-bypass-list=*'], env: { ...process.env, SANAD_BROWSER_TEST_MODE: '1', SANAD_BROWSER_TEST_PROFILE: profile, SANAD_BROWSER_TEST_URL: base, SANAD_BROWSER_TEST_UPDATE_URL: `${base}/update-feed` }, timeout: 30000 });
+    app.process().stderr?.on('data', chunk => process.stderr.write(chunk));
     const shell = await app.firstWindow(); await shell.waitForFunction(() => Boolean(window.sanadBrowser));
     const cmd = (action, data = {}) => shell.evaluate(({ action, data }) => window.sanadBrowser.command(action, data), { action, data });
     const poll = async predicate => { const end = Date.now() + 15000; let state; while (Date.now() < end) { state = await cmd('state'); if (predicate(state)) return state; await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error(`Routing fixture timeout: ${JSON.stringify(state)}`); };
@@ -127,7 +129,7 @@ async function main() {
     assert.equal(hits.length, before, 'no direct request after SOCKS5 outage');
     await app.close(); app = undefined;
     // Enabled configuration survives a new process even when the proxy is already down.
-    app = await electron.launch({ args: ['--no-sandbox', path.join(__dirname, '..')], env: { ...process.env, SANAD_BROWSER_TEST_MODE: '1', SANAD_BROWSER_TEST_PROFILE: profile, SANAD_BROWSER_TEST_URL: base }, timeout: 30000 });
+    app = await electron.launch({ args: [...sandboxArgs, path.join(__dirname, '..')], env: { ...process.env, SANAD_BROWSER_TEST_MODE: '1', SANAD_BROWSER_TEST_PROFILE: profile, SANAD_BROWSER_TEST_URL: base }, timeout: 30000 });
     shell = await app.firstWindow(); await shell.waitForFunction(() => Boolean(window.sanadBrowser));
     await shell.waitForFunction(async () => Boolean((await window.sanadBrowser.command('state')).tabs[0]?.error));
     assert.equal((await shell.evaluate(() => window.sanadBrowser.command('state'))).locationPrivacy.enabled, true);

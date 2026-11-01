@@ -28,7 +28,7 @@ test('private Sanad searches retain private mode without advertising it to unrel
   const url = new URL(nativeSiteURL('https://ip-murad.com/browser?q=C%2B%2B', true)); assert.equal(url.searchParams.get('q'), 'C++'); assert.equal(url.searchParams.get('surface'), 'desktop'); assert.equal(url.searchParams.get('mode'), 'private');
   assert.equal(new URL(nativeSiteURL(url.href, false)).searchParams.has('mode'), false);
   assert.equal(nativeSiteURL('https://example.com/news?q=article', true), 'https://example.com/news?q=article');
-  assert.equal(cleanURL(url.href), 'https://sanadbrowser.com/web/?q=C%2B%2B'); assert.equal(nativeSiteURL('javascript:alert(1)', true), null);
+  assert.equal(cleanURL(url.href), 'https://sanadbrowser.com/web/?q=C%2B%2B&safeSearch=strict'); assert.equal(nativeSiteURL('javascript:alert(1)', true), null);
 });
 test('authentication callback secrets are excluded from history and saved bookmarks', () => {
   for (const url of ['https://example.com/oauth/callback?code=secret', 'https://example.com/?token=secret', 'https://example.com/#access_token=secret', 'https://example.com/sign-in']) assert.equal(mayRemember(url), false);
@@ -88,4 +88,18 @@ test('desktop home and searches use the lightweight official entry, including le
   const migrated = new URL(nativeSiteURL('https://ip-murad.com/browser?q=test&category=images&language=ar#section', true));
   assert.equal(migrated.origin, 'https://sanadbrowser.com'); assert.equal(migrated.searchParams.get('category'), 'images'); assert.equal(migrated.searchParams.get('language'), 'ar'); assert.equal(migrated.hash, '#section'); assert.equal(migrated.searchParams.get('mode'), 'private');
   for (const url of ['https://sanadbrowser.com.evil.example/web/?q=x', 'https://ip-murad.com/profile/studio', 'https://sanadbrowser.com:8443/web/?q=x']) assert.equal(nativeSiteURL(url, true), url);
+});
+
+
+test('Sanad searches cannot lower strict filtering through desktop links, duplicate parameters or private mode', () => {
+  assert.equal(new URL(HOME).searchParams.get('safeSearch'), 'strict');
+  assert.equal(new URL(resolveDestination('literal safeSearch=off').url).searchParams.get('safeSearch'), 'strict');
+  for (const privateMode of [false, true]) for (const level of ['off', 'moderate', 'strict', '']) {
+    for (const base of ['https://sanadbrowser.com/web/', 'https://ip-murad.com/browser']) {
+      const url = new URL(nativeSiteURL(base + '?q=C%2B%2B&safeSearch=' + level + '&safeSearch=off', privateMode));
+      assert.deepEqual(url.searchParams.getAll('safeSearch'), ['strict']);
+      assert.equal(url.searchParams.get('q'), 'C++');
+    }
+  }
+  assert.equal(nativeSiteURL('https://example.com/?safeSearch=off'), 'https://example.com/?safeSearch=off');
 });

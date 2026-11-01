@@ -4,6 +4,8 @@ An executable Chromium browser built with Electron 45.1.0, alongside Sanad's exi
 
 Location privacy: geolocation is denied and WebRTC non-proxied UDP is restricted. The privacy panel also offers an optional local SOCKS5 route with no direct fallback for web requests and a fresh in-memory browsing session. It requires a separately operated, trusted tunnel; it does not bundle Tor or a VPN and does not promise anonymity. See [LOCATION-PRIVACY-AR.md](LOCATION-PRIVACY-AR.md) for setup, limits and verification requirements.
 
+Sanad search links always use `safeSearch=strict`, including private sessions and legacy search returns. The search service enforces this policy independently of URL parameters; other websites remain outside this Sanad search policy.
+
 ## Microsoft Store channel
 
 The source version 1.3.1 adds a separate Microsoft Store MSIX build and Store-managed update UI. See [STORE.md](STORE.md) for reserved identity variables, CI package installation proof and the owner onboarding/submission steps. Store packaging does not require buying a publisher certificate; Microsoft signs after certification. The existing 1.3.0 direct EXE preview remains unsigned.
