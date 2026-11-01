@@ -4,11 +4,11 @@ import {VAULT_TYPES,vaultSelection,normalizeVaultSnapshot,vaultSnapshot,vaultDif
 export function createVaultSync({vault,readAccount,readSelection,fetchImpl=fetch,canSync=()=>true,onStatus=()=>{}}){
  let stopped=true,running=false,phase='idle',error='',lastSync=0,timer,interval;
  const status=()=>({phase,error,lastSync,pending:vault.getMeta().queue.length});
- const update=(next,message='')=>{phase=next;error=message;onStatus(status());};
+ const update=(next,message='')=>{if(phase===next&&error===message)return;phase=next;error=message;onStatus(status());};
  const selected=()=>vaultSelection(readSelection());
  function eligible(){const auth=readAccount();return auth?.enabled&&auth.token&&auth.identity?.uid&&auth.client==='desktop'&&Object.values(selected()).some(Boolean)&&vault.protection.status==='encrypted';}
  async function capture(){const auth=readAccount(),meta=vault.getMeta();if(!eligible()||!meta.initialized||meta.owner!==auth.identity.uid||meta.deviceId!==auth.deviceId)return false;const current=vault.snapshot(),diff=vaultDiff(meta.observed,current,meta.seq,selected());if(!diff.events.length)return false;if(meta.queue.length+diff.events.length>1000)throw Error('local_changes_too_large');meta.queue.push(...diff.events);meta.seq=diff.sequence;meta.observed=current;await vault.setMeta(meta);return true;}
- function changed(){if(stopped)return;clearTimeout(timer);timer=setTimeout(()=>void syncNow(),1200);}
+ function changed(){if(stopped||!eligible())return;void capture().then(dirty=>{if(stopped||!dirty)return;clearTimeout(timer);timer=setTimeout(()=>void syncNow(),1200);}).catch(()=>update('error','local_storage_unavailable'));}
  const merge=(remote,local)=>{const entries=new Map(remote.map(x=>[x.id,x]));for(const record of local){const old=entries.get(record.id);if(!old||record.updated>old.updated)entries.set(record.id,record);}return [...entries.values()];};
  async function syncNow(){if(stopped||running||!canSync())return;if(!eligible()){update(Object.values(selected()).some(Boolean)?'unavailable':'idle',readAccount()?.client!=='desktop'?'desktop_sign_in_required':'');return;}const auth=readAccount(),token=auth.token,owner=auth.identity.uid,deviceId=auth.deviceId,valid=()=>!stopped&&canSync()&&readAccount()?.token===token&&readAccount()?.identity?.uid===owner;
  running=true;try{update('syncing');let meta=vault.getMeta(),choice=selected();if(meta.owner&&meta.owner!==owner)throw Error('vault_account_mismatch');if(meta.deviceId&&meta.deviceId!==deviceId)throw Error('vault_device_mismatch');meta.owner=owner;meta.deviceId=deviceId;

@@ -4,7 +4,7 @@ import { accountRequest } from './browser-account-client.mjs';
 export function createBrowserSync({readAuth,writeAuth,readSnapshot,applyRemote,onStatus=(_status)=>{},fetchImpl=fetch,canSync=()=>true,eventTarget=typeof window==='undefined'?null:window}){
  let running=false,stopped=false,initializing=false,hasRestored=false,timer,interval,phase='signed-out',lastSync=0,error='';
  const persist=auth=>{writeAuth(auth);};
- const update=(next,message='')=>{phase=next;error=message;onStatus(status());};
+ const update=(next,message='')=>{if(phase===next&&error===message)return;phase=next;error=message;onStatus(status());};
  function status(){const auth=readAuth();return {phase,identity:auth?.identity||null,signedIn:Boolean(auth?.token),enabled:auth?.enabled===true,includeHistory:syncSelection(auth).history,selection:{...syncSelection(auth),passwords:auth?.selection?.passwords===true,autofill:auth?.selection?.autofill===true},lastSync,error,pending:auth?.queue?.length||0};}
  function capture(){const auth=readAuth();if(!auth?.enabled||!auth.initialized||initializing)return;
  const current=normalizeSyncSnapshot(readSnapshot()),diff=snapshotDiff(auth.observed||{},current,auth.seq||0,syncSelection(auth));
