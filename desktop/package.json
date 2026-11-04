@@ -19,7 +19,7 @@
     "test:youtube:live": "node tests/youtube-live.test.cjs"
   },
   "dependencies": {
-    "@ghostery/adblocker": "2.20.1",
+    "@ghostery/adblocker": "2.20.3",
     "@ghostery/adblocker-electron": "2.20.1",
     "@mozilla/readability": "0.6.0",
     "tldts-experimental": "7.4.10"
