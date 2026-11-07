@@ -1,0 +1,37 @@
+name: "Bug report · بلاغ عن مشكلة"
+description: "Report a reproducible desktop browser issue · أبلغ عن مشكلة قابلة للتكرار في تطبيق سطح المكتب"
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search the open issues first. Remove passwords, tokens, cookies and personal browsing data from any text or attachments.
+        ابحث في البلاغات المفتوحة أولًا، واحذف كلمات المرور والرموز والكوكيز وبيانات التصفح الشخصية من النص والمرفقات.
+
+        For a security vulnerability, use [private reporting](https://github.com/muradaljohani/Sanad-Browser/blob/main/SECURITY.md#report-a-vulnerability-privately).
+        للثغرات الأمنية، استخدم مسار الإبلاغ الخاص.
+  - type: input
+    id: versions
+    attributes:
+      label: "Browser and OS versions · إصدارات المتصفح والنظام"
+      description: "Copy the app and Chromium versions from About. Include your OS version and installation channel."
+      placeholder: "Sanad … / Chromium … / Windows … / Microsoft Store"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps to reproduce · خطوات إعادة المشكلة"
+      description: "Share the shortest sequence that reproduces the issue. يمكنك كتابة الخطوات بالعربية أو الإنجليزية."
+      placeholder: |
+        1. Open…
+        2. Select…
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: "Expected and actual behavior · السلوك المتوقع والفعلي"
+      description: "Include a redacted screenshot or error message if it helps. أرفق لقطة بعد إخفاء البيانات الشخصية عند الحاجة."
+    validations:
+      required: true

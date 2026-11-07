@@ -1,0 +1,28 @@
+name: "Feature request · اقتراح ميزة"
+description: "Suggest an improvement to the desktop browser or its docs · اقترح تحسينًا للمتصفح أو توثيقه"
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search open issues for an existing proposal before submitting. Arabic and English are welcome.
+        ابحث عن اقتراح مماثل في البلاغات المفتوحة. نرحّب بالاقتراحات بالعربية أو الإنجليزية.
+  - type: textarea
+    id: use-case
+    attributes:
+      label: "Use case · حالة الاستخدام"
+      description: "What are you trying to do, and where do you get stuck? ما المهمة التي تحاول تنفيذها وأين تواجه صعوبة؟"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Proposed improvement · التحسين المقترح"
+      description: "Describe the behavior that would help. اشرح السلوك الذي سيساعدك."
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: "Additional context · سياق إضافي"
+      description: "Optional examples, alternatives you tried or sketches. أمثلة أو بدائل جرّبتها أو رسومات توضيحية."
